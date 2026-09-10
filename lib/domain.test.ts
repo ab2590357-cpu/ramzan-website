@@ -42,4 +42,24 @@ describe('RAFAY domain schemas', () => {
     expect(parsed.packages.length).toBe(3);
     expect(parsed.profiles.every((profile) => profile.adultConfirmed)).toBe(true);
   });
+
+  it('fills new brand-media fields when parsing old site data', () => {
+    const legacy = structuredClone(DEFAULT_SITE_DATA) as unknown as Record<string, unknown>;
+    const hero = { ...(legacy.hero as Record<string, unknown>) };
+    delete hero.desktopImageUrl;
+    delete hero.mobileImageUrl;
+    delete hero.imageAlt;
+    delete hero.whatsappCta;
+    delete legacy.logoUrl;
+    delete legacy.logoAlt;
+    legacy.hero = hero;
+
+    const parsed = SiteDataSchema.parse(legacy);
+    expect(parsed.hero.desktopImageUrl).toBe('');
+    expect(parsed.hero.mobileImageUrl).toBe('');
+    expect(parsed.hero.imageAlt).toBe('');
+    expect(parsed.hero.whatsappCta).toBe('WhatsApp');
+    expect(parsed.logoUrl).toBe('');
+    expect(parsed.logoAlt).toBe('RAFAY');
+  });
 });
