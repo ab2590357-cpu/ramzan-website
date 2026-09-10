@@ -25,6 +25,10 @@ function hiddenNotFound() {
   return new Response('', { status: 404 });
 }
 
+function isUploadedFile(value: FormDataEntryValue | null): value is File {
+  return value !== null && typeof value !== 'string' && typeof value.name === 'string' && typeof value.type === 'string' && typeof value.size === 'number';
+}
+
 export async function POST(request: Request, context: Context) {
   const { secret } = await context.params;
   if (!isValidAdminSecret(secret)) return hiddenNotFound();
@@ -39,7 +43,7 @@ export async function POST(request: Request, context: Context) {
   const scope = form.get('scope');
   const profileId = form.get('profileId');
   const file = form.get('file');
-  if ((scope !== 'profile' && scope !== 'site') || !(file instanceof File)) {
+  if ((scope !== 'profile' && scope !== 'site') || !isUploadedFile(file)) {
     return NextResponse.json({ error: 'Invalid upload payload.' }, { status: 400 });
   }
   if (scope === 'profile' && (typeof profileId !== 'string' || !profileId.trim())) {
