@@ -6,6 +6,7 @@ import { safeFileName } from './validators';
 const CONFIG_PATH = 'rafay/config/site-data.json';
 const BOOKING_PREFIX = 'rafay/bookings/';
 const MEDIA_PREFIX = 'rafay/media/';
+const UNCONFIGURED_ETAG = 'blob-not-configured';
 
 export class SiteDataConflictError extends Error {
   constructor() {
@@ -39,6 +40,10 @@ async function readJson<T>(urlOrPathname: string, access: 'public' | 'private'):
 }
 
 export async function loadSiteData(): Promise<{ data: SiteData; etag: string }> {
+  if (!process.env.BLOB_READ_WRITE_TOKEN?.trim()) {
+    return { data: DEFAULT_SITE_DATA, etag: UNCONFIGURED_ETAG };
+  }
+
   try {
     const metadata = await head(CONFIG_PATH);
     const raw = await readJson<unknown>(metadata.url, 'public');
