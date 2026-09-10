@@ -47,13 +47,13 @@ export const DEFAULT_SITE_DATA: SiteData = {
     profile('sophie', 'Sophie', 'Elegant · celebration-ready', ['dinner', 'events', 'style'], 1),
     profile('luna', 'Luna', 'Creative · camera-ready', ['creator', 'fashion', 'energy'], 2),
     profile('maya', 'Maya', 'Polished · premium presence', ['events', 'dinner', 'social'], 3),
-    profile('zara', 'Zara', 'Confident · after-dark', ['nightlife', 'celebration', 'social'], 4)
+    profile('zara', 'Zara', 'Confident · after-dark', ['nightlife', 'celebration', 'social'], 4),
+    profile('noor', 'Noor', 'Refined · social-ready', ['events', 'style', 'conversation'], 5)
   ],
   packages: [
     packageItem('social', 'Social Appearance', 'Dinners, celebrations and premium social events.', 'From PKR 15,000', 0),
     packageItem('nightlife', 'Nightlife Appearance', 'Lounges, launches and evening events with polished adult presence.', 'From PKR 20,000', 1),
-    packageItem('creator', 'Creator Appearance', 'Shoots, branded content and creator collaborations.', 'From PKR 25,000', 2),
-    packageItem('vip-host', 'VIP Event Host', 'Premium event hosting with priority scheduling.', 'From PKR 40,000', 3)
+    packageItem('creator', 'Creator Appearance', 'Shoots, branded content and creator collaborations.', 'From PKR 25,000', 2)
   ],
   updatedAt: stamp,
   version: 1
