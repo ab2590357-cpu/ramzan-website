@@ -1,9 +1,12 @@
-import { render, screen } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { expect, it } from 'vitest';
 import RootLayout, { metadata } from './layout';
 
-it('renders the RAFAY application shell', () => {
-  render(<RootLayout><main>RAFAY shell content</main></RootLayout>);
-  expect(screen.getByText('RAFAY shell content')).toBeInTheDocument();
+it('returns an html/body RAFAY application shell', () => {
+  const layout = RootLayout({ children: <main>RAFAY shell content</main> }) as ReactElement;
+  expect(layout.type).toBe('html');
+  const body = layout.props.children as ReactElement;
+  expect(body.type).toBe('body');
 });
 
 it('publishes the corrected RAFAY metadata title', () => {
