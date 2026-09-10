@@ -11,7 +11,7 @@ afterEach(() => {
 
 it('uploads site media and returns the new URL', async () => {
   const onChange = vi.fn();
-  const fetchMock = vi.fn(async () => new Response(JSON.stringify({ url: 'https://assets.public.blob.vercel-storage.com/rafay/media/site/hero.webp' }), {
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ url: 'https://assets.public.blob.vercel-storage.com/rafay/media/site/hero.webp' }), {
     status: 201,
     headers: { 'content-type': 'application/json' }
   }));
@@ -22,7 +22,7 @@ it('uploads site media and returns the new URL', async () => {
   fireEvent.change(input, { target: { files: [new File(['image'], 'hero.webp', { type: 'image/webp' })] } });
 
   await waitFor(() => expect(onChange).toHaveBeenCalledWith('https://assets.public.blob.vercel-storage.com/rafay/media/site/hero.webp'));
-  const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+  const requestInit = fetchMock.mock.calls[0]?.[1];
   expect((requestInit?.body as FormData).get('scope')).toBe('site');
 });
 
