@@ -1,5 +1,6 @@
+import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vitest';
-import { getVisiblePublicData } from './sections';
+import { getVisiblePublicData, HeroSection } from './sections';
 import { DEFAULT_SITE_DATA } from '@/lib/defaults';
 
 it('shows only active adult-confirmed profiles and active packages', () => {
@@ -19,4 +20,12 @@ it('shows only active adult-confirmed profiles and active packages', () => {
   const visible = getVisiblePublicData(data);
   expect(visible.profiles.map((item) => item.id)).toEqual(['visible']);
   expect(visible.packages.map((item) => item.id)).toEqual(['visible-package']);
+});
+
+it('renders the RAFAY after-dark hero with a real visual asset instead of the old silhouette', () => {
+  const html = renderToStaticMarkup(<HeroSection data={DEFAULT_SITE_DATA} />);
+  expect(html).toContain('RAFAY AFTER DARK');
+  expect(html).toContain('rafay-hero.jpg');
+  expect(html).toContain('hero-photo');
+  expect(html).not.toContain('hero-silhouette');
 });
