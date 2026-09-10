@@ -11,21 +11,19 @@ afterEach(() => {
 
 it('uploads site media and returns the new URL', async () => {
   const onChange = vi.fn();
-  let sentBody: FormData | null = null;
-  global.fetch = vi.fn(async (_input, init) => {
-    sentBody = init?.body as FormData;
-    return new Response(JSON.stringify({ url: 'https://assets.public.blob.vercel-storage.com/rafay/media/site/hero.webp' }), {
-      status: 201,
-      headers: { 'content-type': 'application/json' }
-    });
-  }) as typeof fetch;
+  const fetchMock = vi.fn(async () => new Response(JSON.stringify({ url: 'https://assets.public.blob.vercel-storage.com/rafay/media/site/hero.webp' }), {
+    status: 201,
+    headers: { 'content-type': 'application/json' }
+  }));
+  global.fetch = fetchMock as typeof fetch;
 
   render(<SiteMediaUploader secret="secret-key" label="Desktop hero" currentUrl="" previewAlt="Hero" onChange={onChange} />);
   const input = screen.getByLabelText(/desktop hero/i) as HTMLInputElement;
   fireEvent.change(input, { target: { files: [new File(['image'], 'hero.webp', { type: 'image/webp' })] } });
 
   await waitFor(() => expect(onChange).toHaveBeenCalledWith('https://assets.public.blob.vercel-storage.com/rafay/media/site/hero.webp'));
-  expect(sentBody?.get('scope')).toBe('site');
+  const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+  expect((requestInit?.body as FormData).get('scope')).toBe('site');
 });
 
 it('keeps the previous preview after a failed upload', async () => {
