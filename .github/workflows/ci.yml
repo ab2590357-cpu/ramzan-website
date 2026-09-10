@@ -1,0 +1,24 @@
+name: RAFAY CI
+
+on:
+  push:
+    branches: [rafay-tdd-red]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RAFAY_ADMIN_KEY: ci-test-admin-key-at-least-32-characters
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm install
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
