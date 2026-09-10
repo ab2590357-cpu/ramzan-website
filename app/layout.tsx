@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Cormorant_Garamond, Inter } from 'next/font/google';
 import type { ReactNode } from 'react';
 import './globals.css';
+import './brand-media.css';
 
 const display = Cormorant_Garamond({
   subsets: ['latin'],
