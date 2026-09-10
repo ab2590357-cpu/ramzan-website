@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { attachProfileImage, removeProfileImage, setProfileCover } from './media-manager';
+import { attachProfileImage, moveProfileImage, removeProfileImage, setProfileCover } from './media-manager';
 import { DEFAULT_SITE_DATA } from '@/lib/defaults';
 
 it('attaches a profile image without mutating the profile', () => {
@@ -16,4 +16,12 @@ it('updates cover and falls back when the cover image is removed', () => {
   const next = removeProfileImage(profile, 'https://example.com/one.webp');
   expect(next.images).toEqual(['https://example.com/two.webp']);
   expect(next.coverImageUrl).toBe('https://example.com/two.webp');
+});
+
+it('reorders profile images without losing the selected cover', () => {
+  const profile = { ...DEFAULT_SITE_DATA.profiles[0], images: ['https://example.com/one.webp','https://example.com/two.webp','https://example.com/three.webp'], coverImageUrl: 'https://example.com/two.webp' };
+  const next = moveProfileImage(profile, 'https://example.com/three.webp', -1);
+  expect(next.images).toEqual(['https://example.com/one.webp','https://example.com/three.webp','https://example.com/two.webp']);
+  expect(next.coverImageUrl).toBe('https://example.com/two.webp');
+  expect(profile.images).toEqual(['https://example.com/one.webp','https://example.com/two.webp','https://example.com/three.webp']);
 });
