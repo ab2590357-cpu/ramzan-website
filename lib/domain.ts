@@ -58,7 +58,11 @@ export const HeroContentSchema = z.object({
   heading: requiredText(180),
   body: shortText(900),
   primaryCta: requiredText(60),
-  secondaryCta: shortText(60)
+  secondaryCta: shortText(60),
+  desktopImageUrl: z.string().url().or(z.literal('')).default(''),
+  mobileImageUrl: z.string().url().or(z.literal('')).default(''),
+  imageAlt: shortText(180).default(''),
+  whatsappCta: shortText(60).default('WhatsApp')
 });
 
 const InfoCardSchema = z.object({
@@ -69,6 +73,8 @@ const InfoCardSchema = z.object({
 
 export const SiteDataSchema = z.object({
   brandName: z.literal('RAFAY'),
+  logoUrl: z.string().url().or(z.literal('')).default(''),
+  logoAlt: shortText(120).default('RAFAY'),
   whatsappNumber: shortText(30),
   publicContact: shortText(160),
   defaultPaymentNote: shortText(500),
