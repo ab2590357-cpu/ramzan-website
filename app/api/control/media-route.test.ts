@@ -49,3 +49,19 @@ it('stores a valid profile image inside the RAFAY media namespace', async () => 
   expect(payload.url).toContain('/rafay/media/profiles/rafa/');
   expect(vi.mocked(put)).toHaveBeenCalledOnce();
 });
+
+it('stores site media in the RAFAY site namespace', async () => {
+  const secret = 'ci-test-admin-key-at-least-32-characters';
+  process.env.RAFAY_ADMIN_KEY = secret;
+  const form = new FormData();
+  form.set('scope', 'site');
+  form.set('file', new File(['image-bytes'], 'hero.webp', { type: 'image/webp' }));
+
+  const response = await POST(new Request('https://example.test/api/control/key/media', { method: 'POST', body: form }), {
+    params: Promise.resolve({ secret })
+  });
+  const payload = await response.json();
+
+  expect(response.status).toBe(201);
+  expect(payload.pathname).toContain('rafay/media/site/');
+});
