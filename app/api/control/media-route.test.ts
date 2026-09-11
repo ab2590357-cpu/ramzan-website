@@ -124,13 +124,19 @@ it('writes site media to RAFAY_DATA_DIR instead of Vercel Blob', async () => {
   delete process.env.BLOB_STORE_ID;
   delete process.env.VERCEL_OIDC_TOKEN;
 
-  const form = new FormData();
-  form.set('scope', 'site');
-  form.set('file', new File(['railway-image'], 'hero.webp', { type: 'image/webp' }));
-
-  const response = await POST(new Request('https://example.test/api/control/key/media', { method: 'POST', body: form }), {
-    params: Promise.resolve({ secret })
+  const boundary = '----rafay-filesystem-upload-test';
+  const multipart = [
+    `--${boundary}\r\nContent-Disposition: form-data; name="scope"\r\n\r\nsite\r\n`,
+    `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="hero.webp"\r\nContent-Type: image/webp\r\n\r\nrailway-image\r\n`,
+    `--${boundary}--\r\n`
+  ].join('');
+  const request = new Request('https://example.test/api/control/key/media', {
+    method: 'POST',
+    headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+    body: multipart
   });
+
+  const response = await POST(request, { params: Promise.resolve({ secret }) });
   const payload = await response.json();
 
   expect(response.status).toBe(201);
