@@ -1,4 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { put } from '@vercel/blob';
 import { POST, validateMediaFile } from './[secret]/media/route';
 
@@ -7,15 +10,25 @@ vi.mock('@vercel/blob', () => ({
     url: `https://assets.public.blob.vercel-storage.com/${pathname}`,
     pathname
   })),
-  del: vi.fn(async () => undefined)
+  del: vi.fn(async () => undefined),
+  get: vi.fn(),
+  head: vi.fn(),
+  list: vi.fn(),
+  BlobPreconditionFailedError: class BlobPreconditionFailedError extends Error {}
 }));
 
 const originalAdminKey = process.env.RAFAY_ADMIN_KEY;
 const originalBlobToken = process.env.BLOB_READ_WRITE_TOKEN;
 const originalBlobStoreId = process.env.BLOB_STORE_ID;
 const originalOidcToken = process.env.VERCEL_OIDC_TOKEN;
+const originalDataDir = process.env.RAFAY_DATA_DIR;
+let tempRoot = '';
 
-afterEach(() => {
+afterEach(async () => {
+  if (tempRoot) {
+    await rm(tempRoot, { recursive: true, force: true });
+    tempRoot = '';
+  }
   if (originalAdminKey === undefined) delete process.env.RAFAY_ADMIN_KEY;
   else process.env.RAFAY_ADMIN_KEY = originalAdminKey;
   if (originalBlobToken === undefined) delete process.env.BLOB_READ_WRITE_TOKEN;
@@ -24,6 +37,8 @@ afterEach(() => {
   else process.env.BLOB_STORE_ID = originalBlobStoreId;
   if (originalOidcToken === undefined) delete process.env.VERCEL_OIDC_TOKEN;
   else process.env.VERCEL_OIDC_TOKEN = originalOidcToken;
+  if (originalDataDir === undefined) delete process.env.RAFAY_DATA_DIR;
+  else process.env.RAFAY_DATA_DIR = originalDataDir;
   vi.clearAllMocks();
 });
 
@@ -44,6 +59,7 @@ it('rejects unsupported media types and files above 5 MB', () => {
 it('returns a JSON service error instead of crashing when Blob storage is not connected', async () => {
   const secret = 'ci-test-admin-key-at-least-32-characters';
   process.env.RAFAY_ADMIN_KEY = secret;
+  delete process.env.RAFAY_DATA_DIR;
   delete process.env.BLOB_READ_WRITE_TOKEN;
   delete process.env.BLOB_STORE_ID;
   delete process.env.VERCEL_OIDC_TOKEN;
@@ -64,6 +80,7 @@ it('returns a JSON service error instead of crashing when Blob storage is not co
 it('stores a valid profile image inside the RAFAY media namespace', async () => {
   const secret = 'ci-test-admin-key-at-least-32-characters';
   process.env.RAFAY_ADMIN_KEY = secret;
+  delete process.env.RAFAY_DATA_DIR;
   process.env.BLOB_READ_WRITE_TOKEN = 'blob_rw_ci';
   const form = new FormData();
   form.set('scope', 'profile');
@@ -83,6 +100,7 @@ it('stores a valid profile image inside the RAFAY media namespace', async () => 
 it('stores site media in the RAFAY site namespace', async () => {
   const secret = 'ci-test-admin-key-at-least-32-characters';
   process.env.RAFAY_ADMIN_KEY = secret;
+  delete process.env.RAFAY_DATA_DIR;
   process.env.BLOB_READ_WRITE_TOKEN = 'blob_rw_ci';
   const form = new FormData();
   form.set('scope', 'site');
@@ -95,4 +113,29 @@ it('stores site media in the RAFAY site namespace', async () => {
 
   expect(response.status).toBe(201);
   expect(payload.pathname).toContain('rafay/media/site/');
+});
+
+it('writes site media to RAFAY_DATA_DIR instead of Vercel Blob', async () => {
+  const secret = 'ci-test-admin-key-at-least-32-characters';
+  process.env.RAFAY_ADMIN_KEY = secret;
+  tempRoot = await mkdtemp(join(tmpdir(), 'rafay-admin-media-'));
+  process.env.RAFAY_DATA_DIR = tempRoot;
+  delete process.env.BLOB_READ_WRITE_TOKEN;
+  delete process.env.BLOB_STORE_ID;
+  delete process.env.VERCEL_OIDC_TOKEN;
+
+  const form = new FormData();
+  form.set('scope', 'site');
+  form.set('file', new File(['railway-image'], 'hero.webp', { type: 'image/webp' }));
+
+  const response = await POST(new Request('https://example.test/api/control/key/media', { method: 'POST', body: form }), {
+    params: Promise.resolve({ secret })
+  });
+  const payload = await response.json();
+
+  expect(response.status).toBe(201);
+  expect(payload.url).toMatch(/^\/media\/site\//);
+  const filename = payload.url.split('/').at(-1);
+  expect(await readFile(join(tempRoot, 'media', 'site', filename), 'utf8')).toBe('railway-image');
+  expect(vi.mocked(put)).not.toHaveBeenCalled();
 });
