@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { readJsonResponse } from '@/lib/http-response';
 import styles from './admin.module.css';
 
 type Props = {
@@ -12,17 +13,6 @@ type Props = {
 };
 
 type UploadPayload = { url?: string; error?: string };
-
-async function readUploadPayload(response: Response): Promise<UploadPayload> {
-  const raw = await response.text();
-  if (!raw.trim()) return {};
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return parsed && typeof parsed === 'object' ? parsed as UploadPayload : {};
-  } catch {
-    return {};
-  }
-}
 
 export function SiteMediaUploader({ secret, label, currentUrl, previewAlt, onChange }: Props) {
   const [state, setState] = useState<'idle' | 'uploading' | 'error'>('idle');
@@ -40,7 +30,7 @@ export function SiteMediaUploader({ secret, label, currentUrl, previewAlt, onCha
         method: 'POST',
         body: form
       });
-      const payload = await readUploadPayload(response);
+      const payload = await readJsonResponse<UploadPayload>(response, 'Upload');
       if (!response.ok) {
         setState('error');
         setError(payload.error || `Upload failed (${response.status}).`);
@@ -48,7 +38,7 @@ export function SiteMediaUploader({ secret, label, currentUrl, previewAlt, onCha
       }
       if (!payload.url) {
         setState('error');
-        setError('Upload completed without a media URL.');
+        setError(payload.error || 'Upload completed without a media URL.');
         return;
       }
       onChange(payload.url);
