@@ -12,6 +12,12 @@ const MEDIA_PREFIX = 'rafay/media/';
 const UNCONFIGURED_ETAG = 'blob-not-configured';
 const READ_ERROR_ETAG = 'blob-read-error';
 
+type BlobAuthOptions = {
+  token?: string;
+  oidcToken?: string;
+  storeId?: string;
+};
+
 export class SiteDataConflictError extends Error {
   constructor() {
     super('Site data changed since it was loaded.');
@@ -26,6 +32,50 @@ function filesystemRoot(): string | null {
 
 function publicBlobToken(): string | undefined {
   return process.env.BLOB_READ_WRITE_TOKEN?.trim() || undefined;
+}
+
+function publicBlobStoreIds(): string[] {
+  const ids: string[] = [];
+  const add = (value: string | undefined) => {
+    const normalized = value?.trim();
+    if (normalized && !ids.includes(normalized)) ids.push(normalized);
+  };
+
+  // Explicit RAFAY overrides win when more than one Blob store is connected.
+  add(process.env.RAFAY_PUBLIC_MEDIA_BLOB_STORE_ID);
+  add(process.env.RAFAY_PUBLIC_BLOB_STORE_ID);
+
+  // Prefer Vercel resource prefixes that clearly identify the public/media store.
+  for (const [key, value] of Object.entries(process.env)) {
+    if (!key.endsWith('_STORE_ID')) continue;
+    if (!/(PUBLIC|MEDIA)/i.test(key)) continue;
+    if (/(PRIVATE|BOOKING)/i.test(key)) continue;
+    add(value);
+  }
+
+  // Standard Vercel Blob prefix used by the RAFAY public store.
+  add(process.env.BLOB_STORE_ID);
+
+  // Compatibility for custom Blob prefixes. Never auto-select a private/booking store.
+  for (const [key, value] of Object.entries(process.env)) {
+    if (!key.endsWith('_STORE_ID')) continue;
+    if (!/BLOB/i.test(key)) continue;
+    if (/(PRIVATE|BOOKING)/i.test(key)) continue;
+    add(value);
+  }
+
+  return ids;
+}
+
+function publicBlobAuthCandidates(): BlobAuthOptions[] {
+  const token = publicBlobToken();
+  if (token) return [{ token }];
+
+  const oidcToken = process.env.VERCEL_OIDC_TOKEN?.trim() || undefined;
+  return publicBlobStoreIds().map((storeId) => ({
+    storeId,
+    ...(oidcToken ? { oidcToken } : {})
+  }));
 }
 
 function logPublicBlobFailure(operation: string, error: unknown): void {
@@ -52,6 +102,12 @@ function localBookingFile(root: string, id: string): string {
 
 function isMissingFile(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && (error as { code?: unknown }).code === 'ENOENT');
+}
+
+function isBlobNotFound(error: unknown): boolean {
+  const status = typeof error === 'object' && error && 'status' in error ? Number((error as { status?: unknown }).status) : undefined;
+  const name = typeof error === 'object' && error && 'name' in error ? String((error as { name?: unknown }).name) : undefined;
+  return status === 404 || name === 'BlobNotFoundError';
 }
 
 async function atomicWrite(path: string, body: string | Uint8Array): Promise<void> {
@@ -144,7 +200,7 @@ function contentTypeForMedia(pathname: string): string {
 export function hasBlobStorageConfig(): boolean {
   if (filesystemRoot()) return true;
   if (publicBlobToken()) return true;
-  return Boolean(process.env.BLOB_STORE_ID?.trim());
+  return publicBlobStoreIds().length > 0;
 }
 
 export function hasPrivateBookingStorageConfig(): boolean {
@@ -191,12 +247,26 @@ export async function saveMedia(
     return { url: `/media/${relative}`, pathname };
   }
 
-  const token = publicBlobToken();
-  const options = { access: 'public' as const, addRandomSuffix: false, contentType };
-  const blob = token
-    ? await put(pathname, body, { ...options, token })
-    : await put(pathname, body, options);
-  return { url: blob.url, pathname: blob.pathname };
+  const candidates = publicBlobAuthCandidates();
+  if (candidates.length === 0) throw new Error('Public Blob storage is not configured.');
+
+  let lastError: unknown;
+  for (const auth of candidates) {
+    try {
+      const blob = await put(pathname, body, {
+        access: 'public',
+        addRandomSuffix: false,
+        contentType,
+        ...auth
+      });
+      return { url: blob.url, pathname: blob.pathname };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  logPublicBlobFailure('media write', lastError);
+  throw lastError instanceof Error ? lastError : new Error('Public Blob media upload failed.');
 }
 
 export async function readMedia(pathname: string): Promise<{ body: Uint8Array; contentType: string } | null> {
@@ -212,8 +282,12 @@ export async function readMedia(pathname: string): Promise<{ body: Uint8Array; c
   }
 }
 
-async function readJson<T>(urlOrPathname: string, access: 'public' | 'private', token?: string): Promise<T | null> {
-  const result = await get(urlOrPathname, token ? { access, token } : { access });
+async function readJson<T>(
+  urlOrPathname: string,
+  access: 'public' | 'private',
+  auth: BlobAuthOptions
+): Promise<T | null> {
+  const result = await get(urlOrPathname, { access, ...auth });
   if (!result) return null;
   const text = await new Response(result.stream).text();
   return JSON.parse(text) as T;
@@ -234,35 +308,38 @@ export async function loadSiteData(): Promise<{ data: SiteData; etag: string }> 
     }
   }
 
-  if (!hasBlobStorageConfig()) {
+  const candidates = publicBlobAuthCandidates();
+  if (candidates.length === 0) {
     return { data: DEFAULT_SITE_DATA, etag: UNCONFIGURED_ETAG };
   }
 
-  const token = publicBlobToken();
-  try {
-    const metadata = token ? await head(CONFIG_PATH, { token }) : await head(CONFIG_PATH);
-    const raw = await readJson<unknown>(metadata.url, 'public', token);
-    return { data: SiteDataSchema.parse(raw), etag: metadata.etag };
-  } catch (error) {
-    const status = typeof error === 'object' && error && 'status' in error ? Number((error as { status?: unknown }).status) : undefined;
-    const name = typeof error === 'object' && error && 'name' in error ? String((error as { name?: unknown }).name) : undefined;
-    if (status !== 404 && name !== 'BlobNotFoundError') {
-      logPublicBlobFailure('site-data read', error);
-      return defaultSiteDataAfterReadError();
-    }
-
+  let lastError: unknown;
+  for (const auth of candidates) {
     try {
-      const seeded = SiteDataSchema.parse({ ...DEFAULT_SITE_DATA, updatedAt: new Date().toISOString() });
-      const options = { access: 'public' as const, addRandomSuffix: false, contentType: 'application/json' };
-      const blob = token
-        ? await put(CONFIG_PATH, JSON.stringify(seeded), { ...options, token })
-        : await put(CONFIG_PATH, JSON.stringify(seeded), options);
-      return { data: seeded, etag: blob.etag };
-    } catch (seedError) {
-      logPublicBlobFailure('site-data bootstrap', seedError);
-      return defaultSiteDataAfterReadError();
+      const metadata = await head(CONFIG_PATH, auth);
+      const raw = await readJson<unknown>(metadata.url, 'public', auth);
+      return { data: SiteDataSchema.parse(raw), etag: metadata.etag };
+    } catch (error) {
+      lastError = error;
+      if (!isBlobNotFound(error)) continue;
+
+      try {
+        const seeded = SiteDataSchema.parse({ ...DEFAULT_SITE_DATA, updatedAt: new Date().toISOString() });
+        const blob = await put(CONFIG_PATH, JSON.stringify(seeded), {
+          access: 'public',
+          addRandomSuffix: false,
+          contentType: 'application/json',
+          ...auth
+        });
+        return { data: seeded, etag: blob.etag };
+      } catch (seedError) {
+        lastError = seedError;
+      }
     }
   }
+
+  logPublicBlobFailure('site-data read/bootstrap', lastError);
+  return defaultSiteDataAfterReadError();
 }
 
 export async function saveSiteData(next: SiteData, expectedEtag: string): Promise<{ data: SiteData; etag: string }> {
@@ -275,25 +352,37 @@ export async function saveSiteData(next: SiteData, expectedEtag: string): Promis
   if (expectedEtag === READ_ERROR_ETAG) {
     throw new Error('Blob storage is temporarily unavailable. Reload after the storage connection is healthy.');
   }
-  const token = publicBlobToken();
-  const validated = SiteDataSchema.parse({ ...next, brandName: 'RAFAY', updatedAt: new Date().toISOString(), version: next.version + 1 });
-  try {
-    const options = {
-      access: 'public' as const,
-      addRandomSuffix: false,
-      allowOverwrite: true,
-      ifMatch: expectedEtag,
-      contentType: 'application/json'
-    };
-    const blob = token
-      ? await put(CONFIG_PATH, JSON.stringify(validated), { ...options, token })
-      : await put(CONFIG_PATH, JSON.stringify(validated), options);
-    return { data: validated, etag: blob.etag };
-  } catch (error) {
-    if (error instanceof BlobPreconditionFailedError) throw new SiteDataConflictError();
-    logPublicBlobFailure('site-data write', error);
-    throw error;
+
+  const validated = SiteDataSchema.parse({
+    ...next,
+    brandName: 'RAFAY',
+    updatedAt: new Date().toISOString(),
+    version: next.version + 1
+  });
+  const candidates = publicBlobAuthCandidates();
+  let lastError: unknown;
+  let sawConflict = false;
+
+  for (const auth of candidates) {
+    try {
+      const blob = await put(CONFIG_PATH, JSON.stringify(validated), {
+        access: 'public',
+        addRandomSuffix: false,
+        allowOverwrite: true,
+        ifMatch: expectedEtag,
+        contentType: 'application/json',
+        ...auth
+      });
+      return { data: validated, etag: blob.etag };
+    } catch (error) {
+      if (error instanceof BlobPreconditionFailedError) sawConflict = true;
+      lastError = error;
+    }
   }
+
+  if (sawConflict) throw new SiteDataConflictError();
+  logPublicBlobFailure('site-data write', lastError);
+  throw lastError instanceof Error ? lastError : new Error('Public Blob site-data write failed.');
 }
 
 export async function createBooking(booking: BookingRequest): Promise<BookingRequest> {
@@ -321,7 +410,7 @@ export async function listBookings(): Promise<BookingRequest[]> {
   const token = privateBookingToken();
   const result = await list({ prefix: BOOKING_PREFIX, limit: 1000, token });
   const bookings = await Promise.all(result.blobs.map(async (blob) => {
-    const raw = await readJson<unknown>(blob.url, 'private', token);
+    const raw = await readJson<unknown>(blob.url, 'private', { token });
     return BookingRequestSchema.parse(raw);
   }));
   return bookings.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -345,11 +434,17 @@ export async function updateBooking(id: string, patch: Partial<Pick<BookingReque
 
   const token = privateBookingToken();
   const path = bookingPath(id);
-  const current = await readJson<unknown>(path, 'private', token);
+  const current = await readJson<unknown>(path, 'private', { token });
   if (!current) throw new Error('Booking not found');
   const existing = BookingRequestSchema.parse(current);
   const next = BookingRequestSchema.parse({ ...existing, ...patch, updatedAt: new Date().toISOString() });
-  await put(path, JSON.stringify(next), { access: 'private', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json', token });
+  await put(path, JSON.stringify(next), {
+    access: 'private',
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    contentType: 'application/json',
+    token
+  });
   return next;
 }
 
@@ -365,11 +460,31 @@ export async function deleteBooking(id: string): Promise<void> {
 }
 
 export async function listMedia(prefix = MEDIA_PREFIX) {
-  const token = publicBlobToken();
-  const result = token
-    ? await list({ prefix, limit: 1000, token })
-    : await list({ prefix, limit: 1000 });
-  return result.blobs;
+  const root = filesystemRoot();
+  if (root) return [];
+
+  const candidates = publicBlobAuthCandidates();
+  if (candidates.length === 0) return [];
+
+  const byPath = new Map<string, Awaited<ReturnType<typeof list>>['blobs'][number]>();
+  let success = false;
+  let lastError: unknown;
+
+  for (const auth of candidates) {
+    try {
+      const result = await list({ prefix, limit: 1000, ...auth });
+      success = true;
+      for (const blob of result.blobs) byPath.set(blob.pathname, blob);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (!success && lastError) {
+    logPublicBlobFailure('media list', lastError);
+    throw lastError;
+  }
+  return [...byPath.values()];
 }
 
 export async function deleteMedia(pathname: string): Promise<void> {
@@ -379,7 +494,23 @@ export async function deleteMedia(pathname: string): Promise<void> {
     await rm(localMediaFile(root, pathname), { force: true });
     return;
   }
-  const token = publicBlobToken();
-  if (token) await del(pathname, { token });
-  else await del(pathname);
+
+  const candidates = publicBlobAuthCandidates();
+  if (candidates.length === 0) throw new Error('Public Blob storage is not configured.');
+
+  let success = false;
+  let lastError: unknown;
+  for (const auth of candidates) {
+    try {
+      await del(pathname, auth);
+      success = true;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (!success) {
+    logPublicBlobFailure('media delete', lastError);
+    throw lastError instanceof Error ? lastError : new Error('Public Blob media delete failed.');
+  }
 }
