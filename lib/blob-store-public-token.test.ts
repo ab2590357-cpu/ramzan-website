@@ -22,9 +22,10 @@ import { deleteMedia, hasBlobStorageConfig, listMedia, loadSiteData, saveMedia, 
 
 const originalToken = process.env.BLOB_READ_WRITE_TOKEN;
 const originalStoreId = process.env.BLOB_STORE_ID;
+const originalOidcToken = process.env.VERCEL_OIDC_TOKEN;
 const originalDataDir = process.env.RAFAY_DATA_DIR;
 
-function restore(name: 'BLOB_READ_WRITE_TOKEN' | 'BLOB_STORE_ID' | 'RAFAY_DATA_DIR', value: string | undefined) {
+function restore(name: 'BLOB_READ_WRITE_TOKEN' | 'BLOB_STORE_ID' | 'VERCEL_OIDC_TOKEN' | 'RAFAY_DATA_DIR', value: string | undefined) {
   if (value === undefined) delete process.env[name];
   else process.env[name] = value;
 }
@@ -38,19 +39,47 @@ afterEach(() => {
   putMock.mockReset();
   restore('BLOB_READ_WRITE_TOKEN', originalToken);
   restore('BLOB_STORE_ID', originalStoreId);
+  restore('VERCEL_OIDC_TOKEN', originalOidcToken);
   restore('RAFAY_DATA_DIR', originalDataDir);
 });
 
-describe('RAFAY public Blob token handling', () => {
-  it('does not treat BLOB_STORE_ID alone as writable public storage', () => {
+describe('RAFAY public Blob authentication', () => {
+  it('treats a connected BLOB_STORE_ID as configured for Vercel OIDC', () => {
     delete process.env.RAFAY_DATA_DIR;
     delete process.env.BLOB_READ_WRITE_TOKEN;
-    process.env.BLOB_STORE_ID = 'store_without_rw_token';
+    process.env.BLOB_STORE_ID = 'store_oidc_ci';
 
-    expect(hasBlobStorageConfig()).toBe(false);
+    expect(hasBlobStorageConfig()).toBe(true);
   });
 
-  it('passes the public token explicitly when loading site data', async () => {
+  it('lets the Blob SDK use automatic OIDC when no static token is present', async () => {
+    delete process.env.RAFAY_DATA_DIR;
+    delete process.env.BLOB_READ_WRITE_TOKEN;
+    process.env.BLOB_STORE_ID = 'store_oidc_ci';
+    process.env.VERCEL_OIDC_TOKEN = 'runtime_oidc_ci';
+    headMock.mockResolvedValue({
+      url: 'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
+      etag: 'etag-oidc-ci'
+    });
+    getMock.mockResolvedValue({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(JSON.stringify(DEFAULT_SITE_DATA)));
+          controller.close();
+        }
+      })
+    });
+
+    await loadSiteData();
+
+    expect(headMock).toHaveBeenCalledWith('rafay/config/site-data.json');
+    expect(getMock).toHaveBeenCalledWith(
+      'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
+      { access: 'public' }
+    );
+  });
+
+  it('passes a legacy/static public token explicitly when it is present', async () => {
     delete process.env.RAFAY_DATA_DIR;
     process.env.BLOB_READ_WRITE_TOKEN = 'public_rw_ci';
     process.env.BLOB_STORE_ID = 'store_ci';
@@ -76,7 +105,7 @@ describe('RAFAY public Blob token handling', () => {
     );
   });
 
-  it('passes the public token explicitly when saving site data and media', async () => {
+  it('passes a static token explicitly when saving site data and media', async () => {
     delete process.env.RAFAY_DATA_DIR;
     process.env.BLOB_READ_WRITE_TOKEN = 'public_rw_ci';
     putMock
@@ -100,14 +129,27 @@ describe('RAFAY public Blob token handling', () => {
     );
   });
 
-  it('passes the public token explicitly when listing and deleting media', async () => {
+  it('uses automatic OIDC for media operations when no static token is present', async () => {
     delete process.env.RAFAY_DATA_DIR;
-    process.env.BLOB_READ_WRITE_TOKEN = 'public_rw_ci';
+    delete process.env.BLOB_READ_WRITE_TOKEN;
+    process.env.BLOB_STORE_ID = 'store_oidc_ci';
+    process.env.VERCEL_OIDC_TOKEN = 'runtime_oidc_ci';
+    putMock.mockResolvedValue({
+      url: 'https://assets.public.blob.vercel-storage.com/rafay/media/site/hero.webp',
+      pathname: 'rafay/media/site/hero.webp'
+    });
 
+    await saveMedia('site', 'hero.webp', new Blob(['image'], { type: 'image/webp' }), 'image/webp');
     await listMedia();
     await deleteMedia('rafay/media/site/hero.webp');
 
-    expect(listMock).toHaveBeenCalledWith({ prefix: 'rafay/media/', limit: 1000, token: 'public_rw_ci' });
-    expect(delMock).toHaveBeenCalledWith('rafay/media/site/hero.webp', { token: 'public_rw_ci' });
+    expect(putMock).toHaveBeenCalledWith(
+      'rafay/media/site/hero.webp',
+      expect.any(Blob),
+      expect.objectContaining({ access: 'public', addRandomSuffix: false, contentType: 'image/webp' })
+    );
+    expect(putMock.mock.calls[0]?.[2]).not.toHaveProperty('token');
+    expect(listMock).toHaveBeenCalledWith({ prefix: 'rafay/media/', limit: 1000 });
+    expect(delMock).toHaveBeenCalledWith('rafay/media/site/hero.webp');
   });
 });
