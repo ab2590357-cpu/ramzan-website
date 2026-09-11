@@ -25,6 +25,7 @@ const originalBlobToken = process.env.BLOB_READ_WRITE_TOKEN;
 const originalBlobStoreId = process.env.BLOB_STORE_ID;
 const originalOidcToken = process.env.VERCEL_OIDC_TOKEN;
 const originalPrivateBookingToken = process.env.RAFAY_PRIVATE_BLOB_READ_WRITE_TOKEN;
+const originalDataDir = process.env.RAFAY_DATA_DIR;
 
 const bookingFixture: BookingRequest = {
   id: 'booking-1',
@@ -50,6 +51,11 @@ const bookingFixture: BookingRequest = {
   updatedAt: '2026-09-11T01:00:00.000Z'
 };
 
+function restore(name: 'BLOB_READ_WRITE_TOKEN' | 'BLOB_STORE_ID' | 'VERCEL_OIDC_TOKEN' | 'RAFAY_PRIVATE_BLOB_READ_WRITE_TOKEN' | 'RAFAY_DATA_DIR', value: string | undefined) {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
+
 afterEach(() => {
   delMock.mockReset();
   getMock.mockReset();
@@ -57,14 +63,11 @@ afterEach(() => {
   listMock.mockReset();
   listMock.mockResolvedValue({ blobs: [] });
   putMock.mockReset();
-  if (originalBlobToken === undefined) delete process.env.BLOB_READ_WRITE_TOKEN;
-  else process.env.BLOB_READ_WRITE_TOKEN = originalBlobToken;
-  if (originalBlobStoreId === undefined) delete process.env.BLOB_STORE_ID;
-  else process.env.BLOB_STORE_ID = originalBlobStoreId;
-  if (originalOidcToken === undefined) delete process.env.VERCEL_OIDC_TOKEN;
-  else process.env.VERCEL_OIDC_TOKEN = originalOidcToken;
-  if (originalPrivateBookingToken === undefined) delete process.env.RAFAY_PRIVATE_BLOB_READ_WRITE_TOKEN;
-  else process.env.RAFAY_PRIVATE_BLOB_READ_WRITE_TOKEN = originalPrivateBookingToken;
+  restore('BLOB_READ_WRITE_TOKEN', originalBlobToken);
+  restore('BLOB_STORE_ID', originalBlobStoreId);
+  restore('VERCEL_OIDC_TOKEN', originalOidcToken);
+  restore('RAFAY_PRIVATE_BLOB_READ_WRITE_TOKEN', originalPrivateBookingToken);
+  restore('RAFAY_DATA_DIR', originalDataDir);
 });
 
 describe('RAFAY Blob paths', () => {
@@ -84,6 +87,7 @@ describe('RAFAY Blob paths', () => {
 
 describe('RAFAY runtime fallback', () => {
   it('returns default public data without calling Blob when storage credentials are missing', async () => {
+    delete process.env.RAFAY_DATA_DIR;
     delete process.env.BLOB_READ_WRITE_TOKEN;
     delete process.env.BLOB_STORE_ID;
     delete process.env.VERCEL_OIDC_TOKEN;
@@ -95,58 +99,22 @@ describe('RAFAY runtime fallback', () => {
     expect(headMock).not.toHaveBeenCalled();
   });
 
-  it('uses an OIDC-connected Blob store even when the legacy read-write token is absent', async () => {
+  it('does not call Blob when only a store id or runtime OIDC marker is present', async () => {
+    delete process.env.RAFAY_DATA_DIR;
     delete process.env.BLOB_READ_WRITE_TOKEN;
     process.env.BLOB_STORE_ID = 'store_ci';
     process.env.VERCEL_OIDC_TOKEN = 'oidc_ci';
-    headMock.mockResolvedValue({
-      url: 'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
-      etag: 'etag-oidc'
-    });
-    getMock.mockResolvedValue({
-      stream: new ReadableStream({
-        start(controller) {
-          controller.enqueue(new TextEncoder().encode(JSON.stringify(DEFAULT_SITE_DATA)));
-          controller.close();
-        }
-      })
-    });
 
     const result = await loadSiteData();
 
-    expect(result.data.brandName).toBe('RAFAY');
-    expect(result.etag).toBe('etag-oidc');
-    expect(headMock).toHaveBeenCalledOnce();
+    expect(result.data.brandName).toBe(DEFAULT_SITE_DATA.brandName);
+    expect(result.etag).toBe('blob-not-configured');
+    expect(headMock).not.toHaveBeenCalled();
   });
 
-  it('treats a Vercel-connected Blob store id as configured when OIDC is runtime-managed', async () => {
-    delete process.env.BLOB_READ_WRITE_TOKEN;
-    process.env.BLOB_STORE_ID = 'store_ci';
-    delete process.env.VERCEL_OIDC_TOKEN;
-    headMock.mockResolvedValue({
-      url: 'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
-      etag: 'etag-store-id'
-    });
-    getMock.mockResolvedValue({
-      stream: new ReadableStream({
-        start(controller) {
-          controller.enqueue(new TextEncoder().encode(JSON.stringify(DEFAULT_SITE_DATA)));
-          controller.close();
-        }
-      })
-    });
-
-    const result = await loadSiteData();
-
-    expect(result.data.brandName).toBe('RAFAY');
-    expect(result.etag).toBe('etag-store-id');
-    expect(headMock).toHaveBeenCalledOnce();
-  });
-
-  it('seeds default site data when a connected Blob store is fresh and head throws BlobNotFoundError', async () => {
-    delete process.env.BLOB_READ_WRITE_TOKEN;
-    process.env.BLOB_STORE_ID = 'store_ci';
-    delete process.env.VERCEL_OIDC_TOKEN;
+  it('seeds default site data when a token-authenticated Blob store is fresh', async () => {
+    delete process.env.RAFAY_DATA_DIR;
+    process.env.BLOB_READ_WRITE_TOKEN = 'public_rw_ci';
 
     const notFound = new Error('Blob not found');
     notFound.name = 'BlobNotFoundError';
@@ -164,7 +132,7 @@ describe('RAFAY runtime fallback', () => {
     expect(putMock).toHaveBeenCalledWith(
       'rafay/config/site-data.json',
       expect.any(String),
-      expect.objectContaining({ access: 'public', addRandomSuffix: false, contentType: 'application/json' })
+      expect.objectContaining({ access: 'public', addRandomSuffix: false, contentType: 'application/json', token: 'public_rw_ci' })
     );
   });
 
@@ -190,6 +158,7 @@ describe('RAFAY runtime fallback', () => {
 
 describe('RAFAY private booking storage', () => {
   it('refuses to write bookings when the separate private store token is missing', async () => {
+    delete process.env.RAFAY_DATA_DIR;
     delete process.env.RAFAY_PRIVATE_BLOB_READ_WRITE_TOKEN;
 
     await expect(createBooking(bookingFixture)).rejects.toThrow('Private booking storage is not configured');
@@ -197,6 +166,7 @@ describe('RAFAY private booking storage', () => {
   });
 
   it('writes bookings with the separate private store token', async () => {
+    delete process.env.RAFAY_DATA_DIR;
     process.env.RAFAY_PRIVATE_BLOB_READ_WRITE_TOKEN = 'private_rw_ci';
 
     await createBooking(bookingFixture);
