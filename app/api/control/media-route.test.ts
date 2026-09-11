@@ -56,7 +56,7 @@ it('rejects unsupported media types and files above 5 MB', () => {
   expect(validateMediaFile(large).ok).toBe(false);
 });
 
-it('returns a JSON service error instead of crashing when Blob storage is not connected', async () => {
+it('returns accurate JSON guidance when public media storage is not configured', async () => {
   const secret = 'ci-test-admin-key-at-least-32-characters';
   process.env.RAFAY_ADMIN_KEY = secret;
   delete process.env.RAFAY_DATA_DIR;
@@ -73,7 +73,7 @@ it('returns a JSON service error instead of crashing when Blob storage is not co
   const payload = await response.json();
 
   expect(response.status).toBe(503);
-  expect(payload.error).toContain('Blob storage');
+  expect(payload.error).toBe('Public media storage is not configured for this deployment. Connect the public Blob store or configure its token, then redeploy.');
   expect(vi.mocked(put)).not.toHaveBeenCalled();
 });
 
