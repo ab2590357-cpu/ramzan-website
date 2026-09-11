@@ -26,35 +26,12 @@ const originalBlobStoreId = process.env.BLOB_STORE_ID;
 const originalOidcToken = process.env.VERCEL_OIDC_TOKEN;
 const originalPrivateBookingToken = process.env.RAFAY_PRIVATE_BLOB_READ_WRITE_TOKEN;
 const originalDataDir = process.env.RAFAY_DATA_DIR;
+const originalPublicStoreId = process.env.RAFAY_PUBLIC_MEDIA_BLOB_STORE_ID;
 
-const bookingFixture: BookingRequest = {
-  id: 'booking-1',
-  reference: 'RFY-BOOKING1',
-  profileId: 'ariana',
-  packageId: 'social',
-  date: '2026-12-01',
-  time: '20:00',
-  city: 'Lahore',
-  venueType: 'Restaurant / dinner',
-  occasion: 'Dinner / social',
-  duration: '1 hour',
-  addOn: 'No add-on',
-  paymentPreference: 'Bank transfer',
-  customerName: 'Test User',
-  customerPhone: '+923001234567',
-  notes: '',
-  lawfulUseConfirmed: true,
-  profileNameSnapshot: 'Ariana',
-  packageNameSnapshot: 'Social Appearance',
-  status: 'Pending',
-  createdAt: '2026-09-11T01:00:00.000Z',
-  updatedAt: '2026-09-11T01:00:00.000Z'
-};
-
-function restore(name: 'BLOB_READ_WRITE_TOKEN' | 'BLOB_STORE_ID' | 'VERCEL_OIDC_TOKEN' | 'RAFAY_PRIVATE_BLOB_READ_WRITE_TOKEN' | 'RAFAY_DATA_DIR', value: string | undefined) {
+const restore = (name: string, value: string | undefined) => {
   if (value === undefined) delete process.env[name];
   else process.env[name] = value;
-}
+};
 
 afterEach(() => {
   delMock.mockReset();
@@ -68,6 +45,7 @@ afterEach(() => {
   restore('VERCEL_OIDC_TOKEN', originalOidcToken);
   restore('RAFAY_PRIVATE_BLOB_READ_WRITE_TOKEN', originalPrivateBookingToken);
   restore('RAFAY_DATA_DIR', originalDataDir);
+  restore('RAFAY_PUBLIC_MEDIA_BLOB_STORE_ID', originalPublicStoreId);
 });
 
 describe('RAFAY Blob paths', () => {
@@ -91,6 +69,7 @@ describe('RAFAY runtime fallback', () => {
     delete process.env.BLOB_READ_WRITE_TOKEN;
     delete process.env.BLOB_STORE_ID;
     delete process.env.VERCEL_OIDC_TOKEN;
+    delete process.env.RAFAY_PUBLIC_MEDIA_BLOB_STORE_ID;
 
     const result = await loadSiteData();
 
@@ -99,9 +78,10 @@ describe('RAFAY runtime fallback', () => {
     expect(headMock).not.toHaveBeenCalled();
   });
 
-  it('uses a connected store id with runtime-managed OIDC authentication', async () => {
+  it('uses a connected store id with explicit runtime-managed OIDC authentication', async () => {
     delete process.env.RAFAY_DATA_DIR;
     delete process.env.BLOB_READ_WRITE_TOKEN;
+    delete process.env.RAFAY_PUBLIC_MEDIA_BLOB_STORE_ID;
     process.env.BLOB_STORE_ID = 'store_ci';
     process.env.VERCEL_OIDC_TOKEN = 'oidc_ci';
     headMock.mockResolvedValue({
@@ -121,10 +101,13 @@ describe('RAFAY runtime fallback', () => {
 
     expect(result.data.brandName).toBe('RAFAY');
     expect(result.etag).toBe('etag-oidc');
-    expect(headMock).toHaveBeenCalledWith('rafay/config/site-data.json');
+    expect(headMock).toHaveBeenCalledWith('rafay/config/site-data.json', {
+      storeId: 'store_ci',
+      oidcToken: 'oidc_ci'
+    });
     expect(getMock).toHaveBeenCalledWith(
       'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
-      { access: 'public' }
+      { access: 'public', storeId: 'store_ci', oidcToken: 'oidc_ci' }
     );
   });
 
@@ -194,3 +177,27 @@ describe('RAFAY private booking storage', () => {
     );
   });
 });
+
+const bookingFixture: BookingRequest = {
+  id: 'booking-1',
+  reference: 'RFY-BOOKING1',
+  profileId: 'ariana',
+  packageId: 'social',
+  date: '2026-12-01',
+  time: '20:00',
+  city: 'Lahore',
+  venueType: 'Restaurant / dinner',
+  occasion: 'Dinner / social',
+  duration: '1 hour',
+  addOn: 'No add-on',
+  paymentPreference: 'Bank transfer',
+  customerName: 'Test User',
+  customerPhone: '+923001234567',
+  notes: '',
+  lawfulUseConfirmed: true,
+  profileNameSnapshot: 'Ariana',
+  packageNameSnapshot: 'Social Appearance',
+  status: 'Pending',
+  createdAt: '2026-09-11T01:00:00.000Z',
+  updatedAt: '2026-09-11T01:00:00.000Z'
+};
