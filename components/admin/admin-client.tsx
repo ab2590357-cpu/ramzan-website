@@ -22,6 +22,22 @@ export function normalizeOrders<T extends { displayOrder: number }>(items: T[]):
   return items.map((item, displayOrder) => ({ ...item, displayOrder }));
 }
 
+type AdminSavePayload = { error?: string; data?: SiteData; etag?: string };
+
+export async function readAdminJsonResponse(response: Response): Promise<AdminSavePayload> {
+  const text = await response.text();
+  if (!text.trim()) return { error: `Save failed (${response.status}).` };
+  try {
+    const payload = JSON.parse(text) as unknown;
+    if (!payload || typeof payload !== 'object') {
+      return { error: response.ok ? 'Save failed: invalid server response.' : `Save failed (${response.status}).` };
+    }
+    return payload as AdminSavePayload;
+  } catch {
+    return { error: response.ok ? 'Save failed: invalid server response.' : `Save failed (${response.status}).` };
+  }
+}
+
 function newPackage(order: number): Package {
   return { id: crypto.randomUUID(), name: '', description: '', priceLabel: '', durationNote: '', active: false, displayOrder: order };
 }
@@ -48,9 +64,10 @@ export function AdminClient({ secret, initialData, initialEtag }: Props) {
     setSaveState('saving'); setMessage('');
     try {
       const response = await fetch(`/api/control/${encodeURIComponent(secret)}/site-data`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ data: draft, etag }) });
-      const payload = await response.json();
+      const payload = await readAdminJsonResponse(response);
       if (response.status === 409) { setSaveState('conflict'); setMessage('This content changed in another tab. Refresh before saving again.'); return; }
-      if (!response.ok) throw new Error(payload.error || 'Save failed.');
+      if (!response.ok) throw new Error(payload.error || `Save failed (${response.status}).`);
+      if (!payload.data || typeof payload.etag !== 'string' || !payload.etag) throw new Error(payload.error || 'Save failed: invalid server response.');
       setDraft(payload.data); setEtag(payload.etag); setSaveState('saved'); setMessage('Saved. Public RAFAY content is now updated.');
     } catch (error) { setSaveState('error'); setMessage(error instanceof Error ? error.message : 'Save failed.'); }
   };
