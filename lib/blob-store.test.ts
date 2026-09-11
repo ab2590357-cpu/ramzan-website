@@ -143,6 +143,31 @@ describe('RAFAY runtime fallback', () => {
     expect(headMock).toHaveBeenCalledOnce();
   });
 
+  it('seeds default site data when a connected Blob store is fresh and head throws BlobNotFoundError', async () => {
+    delete process.env.BLOB_READ_WRITE_TOKEN;
+    process.env.BLOB_STORE_ID = 'store_ci';
+    delete process.env.VERCEL_OIDC_TOKEN;
+
+    const notFound = new Error('Blob not found');
+    notFound.name = 'BlobNotFoundError';
+    headMock
+      .mockRejectedValueOnce(notFound)
+      .mockResolvedValueOnce({ etag: 'etag-seeded' });
+    putMock.mockResolvedValue({
+      url: 'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json'
+    });
+
+    const result = await loadSiteData();
+
+    expect(result.data.brandName).toBe('RAFAY');
+    expect(result.etag).toBe('etag-seeded');
+    expect(putMock).toHaveBeenCalledWith(
+      'rafay/config/site-data.json',
+      expect.any(String),
+      expect.objectContaining({ access: 'public', addRandomSuffix: false, contentType: 'application/json' })
+    );
+  });
+
   it('keeps legacy persisted site config readable after brand-media fields are introduced', () => {
     const legacy = structuredClone(DEFAULT_SITE_DATA) as unknown as Record<string, unknown>;
     const hero = { ...(legacy.hero as Record<string, unknown>) };
