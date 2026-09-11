@@ -99,17 +99,33 @@ describe('RAFAY runtime fallback', () => {
     expect(headMock).not.toHaveBeenCalled();
   });
 
-  it('does not call Blob when only a store id or runtime OIDC marker is present', async () => {
+  it('uses a connected store id with runtime-managed OIDC authentication', async () => {
     delete process.env.RAFAY_DATA_DIR;
     delete process.env.BLOB_READ_WRITE_TOKEN;
     process.env.BLOB_STORE_ID = 'store_ci';
     process.env.VERCEL_OIDC_TOKEN = 'oidc_ci';
+    headMock.mockResolvedValue({
+      url: 'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
+      etag: 'etag-oidc'
+    });
+    getMock.mockResolvedValue({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(JSON.stringify(DEFAULT_SITE_DATA)));
+          controller.close();
+        }
+      })
+    });
 
     const result = await loadSiteData();
 
-    expect(result.data.brandName).toBe(DEFAULT_SITE_DATA.brandName);
-    expect(result.etag).toBe('blob-not-configured');
-    expect(headMock).not.toHaveBeenCalled();
+    expect(result.data.brandName).toBe('RAFAY');
+    expect(result.etag).toBe('etag-oidc');
+    expect(headMock).toHaveBeenCalledWith('rafay/config/site-data.json');
+    expect(getMock).toHaveBeenCalledWith(
+      'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
+      { access: 'public' }
+    );
   });
 
   it('seeds default site data when a token-authenticated Blob store is fresh', async () => {
