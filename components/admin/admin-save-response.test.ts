@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { readAdminJsonResponse } from './admin-client';
+import { readJsonResponse } from '@/lib/http-response';
 
 describe('RAFAY admin save response parsing', () => {
   it('returns a status-based error for an empty failed response instead of throwing JSON parse errors', async () => {
     const response = new Response('', { status: 500 });
 
-    const result = await readAdminJsonResponse(response);
+    const result = await readJsonResponse<{ error?: string }>(response, 'Save');
 
     expect(result).toEqual({ error: 'Save failed (500).' });
   });
@@ -16,7 +16,7 @@ describe('RAFAY admin save response parsing', () => {
       headers: { 'content-type': 'application/json' }
     });
 
-    const result = await readAdminJsonResponse(response);
+    const result = await readJsonResponse<{ error?: string }>(response, 'Save');
 
     expect(result).toEqual({ error: 'Storage unavailable.' });
   });
