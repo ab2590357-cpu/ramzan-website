@@ -17,7 +17,7 @@ export class SiteDataConflictError extends Error {
 
 export function hasBlobStorageConfig(): boolean {
   if (process.env.BLOB_READ_WRITE_TOKEN?.trim()) return true;
-  return Boolean(process.env.BLOB_STORE_ID?.trim() && process.env.VERCEL_OIDC_TOKEN?.trim());
+  return Boolean(process.env.BLOB_STORE_ID?.trim());
 }
 
 export function hasPrivateBookingStorageConfig(): boolean {
