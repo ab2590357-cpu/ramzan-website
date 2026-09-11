@@ -1,0 +1,2 @@
+RAFAY Railway source deployment trigger.
+This file intentionally exists so the linked Railway service rebuilds from the current main branch instead of redeploying an older snapshot.
