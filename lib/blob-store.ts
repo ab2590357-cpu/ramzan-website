@@ -7,6 +7,7 @@ const CONFIG_PATH = 'rafay/config/site-data.json';
 const BOOKING_PREFIX = 'rafay/bookings/';
 const MEDIA_PREFIX = 'rafay/media/';
 const UNCONFIGURED_ETAG = 'blob-not-configured';
+const READ_ERROR_ETAG = 'blob-read-error';
 
 export class SiteDataConflictError extends Error {
   constructor() {
@@ -54,6 +55,10 @@ async function readJson<T>(urlOrPathname: string, access: 'public' | 'private', 
   return JSON.parse(text) as T;
 }
 
+function defaultSiteDataAfterReadError(): { data: SiteData; etag: string } {
+  return { data: DEFAULT_SITE_DATA, etag: READ_ERROR_ETAG };
+}
+
 export async function loadSiteData(): Promise<{ data: SiteData; etag: string }> {
   if (!hasBlobStorageConfig()) {
     return { data: DEFAULT_SITE_DATA, etag: UNCONFIGURED_ETAG };
@@ -66,19 +71,27 @@ export async function loadSiteData(): Promise<{ data: SiteData; etag: string }> 
   } catch (error) {
     const status = typeof error === 'object' && error && 'status' in error ? Number((error as { status?: unknown }).status) : undefined;
     const name = typeof error === 'object' && error && 'name' in error ? String((error as { name?: unknown }).name) : undefined;
-    if (status !== 404 && name !== 'BlobNotFoundError') throw error;
-    const seeded = { ...DEFAULT_SITE_DATA, updatedAt: new Date().toISOString() };
-    const blob = await put(CONFIG_PATH, JSON.stringify(seeded), {
-      access: 'public',
-      addRandomSuffix: false,
-      contentType: 'application/json'
-    });
-    const metadata = await head(blob.url);
-    return { data: seeded, etag: metadata.etag };
+    if (status !== 404 && name !== 'BlobNotFoundError') return defaultSiteDataAfterReadError();
+
+    try {
+      const seeded = { ...DEFAULT_SITE_DATA, updatedAt: new Date().toISOString() };
+      const blob = await put(CONFIG_PATH, JSON.stringify(seeded), {
+        access: 'public',
+        addRandomSuffix: false,
+        contentType: 'application/json'
+      });
+      const metadata = await head(blob.url);
+      return { data: seeded, etag: metadata.etag };
+    } catch {
+      return defaultSiteDataAfterReadError();
+    }
   }
 }
 
 export async function saveSiteData(next: SiteData, expectedEtag: string): Promise<{ data: SiteData; etag: string }> {
+  if (expectedEtag === READ_ERROR_ETAG) {
+    throw new Error('Blob storage is temporarily unavailable. Reload after the storage connection is healthy.');
+  }
   const validated = SiteDataSchema.parse({ ...next, brandName: 'RAFAY', updatedAt: new Date().toISOString(), version: next.version + 1 });
   try {
     await put(CONFIG_PATH, JSON.stringify(validated), {
