@@ -11,10 +11,19 @@ vi.mock('@vercel/blob', () => ({
 }));
 
 const originalAdminKey = process.env.RAFAY_ADMIN_KEY;
+const originalBlobToken = process.env.BLOB_READ_WRITE_TOKEN;
+const originalBlobStoreId = process.env.BLOB_STORE_ID;
+const originalOidcToken = process.env.VERCEL_OIDC_TOKEN;
 
 afterEach(() => {
   if (originalAdminKey === undefined) delete process.env.RAFAY_ADMIN_KEY;
   else process.env.RAFAY_ADMIN_KEY = originalAdminKey;
+  if (originalBlobToken === undefined) delete process.env.BLOB_READ_WRITE_TOKEN;
+  else process.env.BLOB_READ_WRITE_TOKEN = originalBlobToken;
+  if (originalBlobStoreId === undefined) delete process.env.BLOB_STORE_ID;
+  else process.env.BLOB_STORE_ID = originalBlobStoreId;
+  if (originalOidcToken === undefined) delete process.env.VERCEL_OIDC_TOKEN;
+  else process.env.VERCEL_OIDC_TOKEN = originalOidcToken;
   vi.clearAllMocks();
 });
 
@@ -32,9 +41,30 @@ it('rejects unsupported media types and files above 5 MB', () => {
   expect(validateMediaFile(large).ok).toBe(false);
 });
 
+it('returns a JSON service error instead of crashing when Blob storage is not connected', async () => {
+  const secret = 'ci-test-admin-key-at-least-32-characters';
+  process.env.RAFAY_ADMIN_KEY = secret;
+  delete process.env.BLOB_READ_WRITE_TOKEN;
+  delete process.env.BLOB_STORE_ID;
+  delete process.env.VERCEL_OIDC_TOKEN;
+  const form = new FormData();
+  form.set('scope', 'site');
+  form.set('file', new File(['image-bytes'], 'hero.webp', { type: 'image/webp' }));
+
+  const response = await POST(new Request('https://example.test/api/control/key/media', { method: 'POST', body: form }), {
+    params: Promise.resolve({ secret })
+  });
+  const payload = await response.json();
+
+  expect(response.status).toBe(503);
+  expect(payload.error).toContain('Blob storage');
+  expect(vi.mocked(put)).not.toHaveBeenCalled();
+});
+
 it('stores a valid profile image inside the RAFAY media namespace', async () => {
   const secret = 'ci-test-admin-key-at-least-32-characters';
   process.env.RAFAY_ADMIN_KEY = secret;
+  process.env.BLOB_READ_WRITE_TOKEN = 'blob_rw_ci';
   const form = new FormData();
   form.set('scope', 'profile');
   form.set('profileId', 'rafa');
@@ -53,6 +83,7 @@ it('stores a valid profile image inside the RAFAY media namespace', async () => 
 it('stores site media in the RAFAY site namespace', async () => {
   const secret = 'ci-test-admin-key-at-least-32-characters';
   process.env.RAFAY_ADMIN_KEY = secret;
+  process.env.BLOB_READ_WRITE_TOKEN = 'blob_rw_ci';
   const form = new FormData();
   form.set('scope', 'site');
   form.set('file', new File(['image-bytes'], 'hero.webp', { type: 'image/webp' }));
