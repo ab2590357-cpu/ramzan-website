@@ -39,10 +39,8 @@ afterEach(() => {
 
 describe('RAFAY Blob write ETag handling', () => {
   it('uses the ETag returned by the seed put without a second head request', async () => {
-    delete process.env.BLOB_READ_WRITE_TOKEN;
+    process.env.BLOB_READ_WRITE_TOKEN = 'public_rw_ci';
     delete process.env.RAFAY_DATA_DIR;
-    process.env.BLOB_STORE_ID = 'store_ci';
-    delete process.env.VERCEL_OIDC_TOKEN;
 
     const notFound = new Error('Blob not found');
     notFound.name = 'BlobNotFoundError';
@@ -59,10 +57,8 @@ describe('RAFAY Blob write ETag handling', () => {
   });
 
   it('uses the ETag returned by a successful config put without a follow-up head request', async () => {
-    delete process.env.BLOB_READ_WRITE_TOKEN;
+    process.env.BLOB_READ_WRITE_TOKEN = 'public_rw_ci';
     delete process.env.RAFAY_DATA_DIR;
-    process.env.BLOB_STORE_ID = 'store_ci';
-    delete process.env.VERCEL_OIDC_TOKEN;
     putMock.mockResolvedValue({
       url: 'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
       etag: 'etag-updated'
