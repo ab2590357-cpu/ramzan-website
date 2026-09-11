@@ -1,12 +1,15 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import type { BookingInput, SiteData } from '@/lib/domain';
+import type { BookingInput, BookingRequest, SiteData } from '@/lib/domain';
+import { readJsonResponse } from '@/lib/http-response';
 import styles from './booking-wizard.module.css';
 
 export const BOOKING_STEP_TITLES = ['Profile','Package','Date & time','City & venue','Occasion','Duration','Add-ons','Payment','Contact','Review'] as const;
 
 export type BookingDraft = Omit<BookingInput, 'lawfulUseConfirmed'> & { lawfulUseConfirmed: boolean };
+
+type BookingSubmitPayload = { booking?: BookingRequest; whatsappUrl?: string; error?: string };
 
 export function initialBookingDraft(data: SiteData, initialProfileId = '', initialPackageId = ''): BookingDraft {
   return {
@@ -53,8 +56,9 @@ export function BookingWizard({ data, initialProfileId = '', initialPackageId = 
     setSubmitting(true); setError('');
     try {
       const response = await fetch('/api/bookings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(draft) });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || 'Booking could not be saved.');
+      const payload = await readJsonResponse<BookingSubmitPayload>(response, 'Booking request');
+      if (!response.ok) throw new Error(payload.error || `Booking could not be saved (${response.status}).`);
+      if (!payload.booking) throw new Error(payload.error || 'Booking could not be saved: invalid server response.');
       if (payload.whatsappUrl) window.location.assign(payload.whatsappUrl);
       else setError(`Request ${payload.booking.reference} was saved, but the business WhatsApp number is not configured yet.`);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Booking could not be saved. Please retry.'); }
