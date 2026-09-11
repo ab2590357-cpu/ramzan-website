@@ -21,8 +21,8 @@ Copy `.env.example` to `.env.local` for local development and configure the corr
 
 - `RAFAY_ADMIN_KEY` — a private random secret at least 24 characters long. The admin route is `/control/<RAFAY_ADMIN_KEY>`. Treat the full URL like a password because there is intentionally no login screen.
 - `RAFAY_DATA_DIR` — optional absolute persistent-volume path. When set, RAFAY stores site configuration, bookings and uploaded media on that filesystem and does not require Vercel Blob. Railway production can use `/data`.
-- `BLOB_READ_WRITE_TOKEN` — required on Vercel when `RAFAY_DATA_DIR` is absent. This is the read/write token from the connected **Public** Blob store used for `rafay/config/site-data.json`, logo/hero media and profile images. RAFAY passes this credential explicitly to Blob SDK operations instead of relying on implicit runtime bindings.
-- `RAFAY_PRIVATE_BLOB_READ_WRITE_TOKEN` — required on Vercel when `RAFAY_DATA_DIR` is absent; this is the read/write token from the separate **Private** Blob store for `rafay/bookings/*.json`.
+- Public Vercel Blob — used for `rafay/config/site-data.json`, logo/hero media and profile images when `RAFAY_DATA_DIR` is absent. New connected Vercel Blob stores use OIDC by default: Vercel supplies `BLOB_STORE_ID` and runtime credentials automatically. Legacy/token-based connections and local development can instead provide `BLOB_READ_WRITE_TOKEN`; RAFAY supports both authentication modes.
+- `RAFAY_PRIVATE_BLOB_READ_WRITE_TOKEN` — used when `RAFAY_DATA_DIR` is absent; this explicitly selects the separate **Private** Blob store for `rafay/bookings/*.json`.
 
 Never expose the admin key or storage credentials in client-side environment variables or source code.
 
@@ -79,12 +79,12 @@ With `RAFAY_DATA_DIR=/data`, site configuration is stored at `/data/config/site-
 
 When `RAFAY_DATA_DIR` is not set, RAFAY uses two Blob stores because public media and private booking records have different access requirements:
 
-1. Create/connect a **Public** Blob store to the RAFAY Vercel project for public site data and media. Enable/add its read-write token and expose it to the project as the exact server-side variable `BLOB_READ_WRITE_TOKEN` for Production (and Preview if previews need persistence).
-2. Create/connect a separate **Private** Blob store for booking request records. Expose its read-write token as the exact server-side variable `RAFAY_PRIVATE_BLOB_READ_WRITE_TOKEN`.
-3. Redeploy after adding or changing storage environment variables.
+1. Create/connect a **Public** Blob store to the RAFAY Vercel project for public site data and media. Current Vercel connections use OIDC by default; the project receives `BLOB_STORE_ID` and the Blob SDK authenticates from the function automatically. A static `BLOB_READ_WRITE_TOKEN` is also supported for legacy/token-based connections and local development.
+2. Create/connect a separate **Private** Blob store for booking request records. RAFAY currently selects this second store explicitly through `RAFAY_PRIVATE_BLOB_READ_WRITE_TOKEN`.
+3. Redeploy after adding/changing storage connections or variables.
 4. Verify `/api/health` is serving the intended commit before retesting the admin.
 
-The public store is required for admin hero/logo/profile uploads and persistent website edits on Vercel. The private store is required for public booking submissions and the admin Bookings manager on Vercel. `BLOB_STORE_ID` alone is not considered writable RAFAY configuration.
+The public store is required for admin hero/logo/profile uploads and persistent website edits on Vercel. The private store is required for public booking submissions and the admin Bookings manager on Vercel. A connected public `BLOB_STORE_ID` is a valid RAFAY public-storage configuration because the Vercel Blob SDK can authenticate it with runtime OIDC; a static public token remains a fallback.
 
 ## Failure behavior
 
