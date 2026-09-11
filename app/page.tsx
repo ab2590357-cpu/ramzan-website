@@ -9,5 +9,5 @@ export const dynamic = 'force-dynamic';
 export default async function HomePage() {
   const { data } = await loadSiteData();
   const visible = getVisiblePublicData(data);
-  return <><AgeGate /><PublicHeader /><main><HeroSection data={data} /><ProfilesSection profiles={visible.profiles} /><PackagesSection packages={visible.packages} /><TrustSection data={data} /><HowSection data={data} /></main><PublicFooter data={data} /></>;
+  return <><AgeGate /><PublicHeader data={data} /><main><HeroSection data={data} /><ProfilesSection profiles={visible.profiles} /><PackagesSection packages={visible.packages} /><TrustSection data={data} /><HowSection data={data} /></main><PublicFooter data={data} /></>;
 }

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SITE_DATA } from './defaults';
+import { SiteDataSchema } from './domain';
 
 const { headMock } = vi.hoisted(() => ({ headMock: vi.fn() }));
 
@@ -46,5 +47,24 @@ describe('RAFAY runtime fallback', () => {
     expect(result.data.brandName).toBe(DEFAULT_SITE_DATA.brandName);
     expect(result.etag).toBe('blob-not-configured');
     expect(headMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps legacy persisted site config readable after brand-media fields are introduced', () => {
+    const legacy = structuredClone(DEFAULT_SITE_DATA) as unknown as Record<string, unknown>;
+    const hero = { ...(legacy.hero as Record<string, unknown>) };
+    delete hero.desktopImageUrl;
+    delete hero.mobileImageUrl;
+    delete hero.imageAlt;
+    delete hero.whatsappCta;
+    delete legacy.logoUrl;
+    delete legacy.logoAlt;
+    legacy.hero = hero;
+
+    const parsed = SiteDataSchema.parse(legacy);
+    expect(parsed.logoUrl).toBe('');
+    expect(parsed.logoAlt).toBe('RAFAY');
+    expect(parsed.hero.desktopImageUrl).toBe('');
+    expect(parsed.hero.mobileImageUrl).toBe('');
+    expect(parsed.hero.whatsappCta).toBe('WhatsApp');
   });
 });

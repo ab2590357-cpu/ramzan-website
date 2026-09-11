@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vitest';
-import { getVisiblePublicData, HeroSection } from './sections';
+import { getVisiblePublicData, HeroSection, selectHeroImage } from './sections';
 import { DEFAULT_SITE_DATA } from '@/lib/defaults';
 
 it('shows only active adult-confirmed profiles and active packages', () => {
@@ -22,10 +22,39 @@ it('shows only active adult-confirmed profiles and active packages', () => {
   expect(visible.packages.map((item) => item.id)).toEqual(['visible-package']);
 });
 
-it('renders the RAFAY after-dark hero with a real visual asset instead of the old silhouette', () => {
+it('selects desktop hero only for desktop', () => {
+  const hero = { ...DEFAULT_SITE_DATA.hero, desktopImageUrl: 'https://example.com/desktop.webp', mobileImageUrl: 'https://example.com/mobile.webp' };
+  expect(selectHeroImage(hero, 'desktop')).toBe('https://example.com/desktop.webp');
+});
+
+it('prefers mobile hero and falls back to desktop on mobile', () => {
+  expect(selectHeroImage({ ...DEFAULT_SITE_DATA.hero, desktopImageUrl: 'https://example.com/desktop.webp', mobileImageUrl: 'https://example.com/mobile.webp' }, 'mobile')).toBe('https://example.com/mobile.webp');
+  expect(selectHeroImage({ ...DEFAULT_SITE_DATA.hero, desktopImageUrl: 'https://example.com/desktop.webp', mobileImageUrl: '' }, 'mobile')).toBe('https://example.com/desktop.webp');
+});
+
+it('does not use a mobile-only image as the desktop custom hero', () => {
+  expect(selectHeroImage({ ...DEFAULT_SITE_DATA.hero, desktopImageUrl: '', mobileImageUrl: 'https://example.com/mobile.webp' }, 'desktop')).toBe('');
+});
+
+it('keeps the built-in RAFAY hero visual as fallback when custom media is empty', () => {
   const html = renderToStaticMarkup(<HeroSection data={DEFAULT_SITE_DATA} />);
   expect(html).toContain('RAFAY AFTER DARK');
   expect(html).toContain('rafay-hero.jpg');
   expect(html).toContain('hero-photo');
-  expect(html).not.toContain('hero-silhouette');
+});
+
+it('hides direct hero WhatsApp when no business number is configured', () => {
+  const html = renderToStaticMarkup(<HeroSection data={{ ...DEFAULT_SITE_DATA, whatsappNumber: '' }} />);
+  expect(html).not.toContain('wa.me/');
+});
+
+it('renders hero WhatsApp using the configured number and CTA label', () => {
+  const data = {
+    ...DEFAULT_SITE_DATA,
+    whatsappNumber: '+92 300 1234567',
+    hero: { ...DEFAULT_SITE_DATA.hero, whatsappCta: 'Chat privately' }
+  };
+  const html = renderToStaticMarkup(<HeroSection data={data} />);
+  expect(html).toContain('wa.me/923001234567');
+  expect(html).toContain('Chat privately');
 });

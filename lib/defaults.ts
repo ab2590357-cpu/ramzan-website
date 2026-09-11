@@ -7,6 +7,8 @@ const packageItem = (id: string, name: string, description: string, priceLabel: 
 
 export const DEFAULT_SITE_DATA: SiteData = {
   brandName: 'RAFAY',
+  logoUrl: '',
+  logoAlt: 'RAFAY',
   whatsappNumber: '',
   publicContact: 'Private booking requests are reviewed before confirmation.',
   defaultPaymentNote: 'Payment details are shared only after booking review and confirmation.',
@@ -15,7 +17,11 @@ export const DEFAULT_SITE_DATA: SiteData = {
     heading: 'Private nights. Polished presence.',
     body: 'A dark-luxury booking experience for lawful adult social events, nightlife appearances, celebrations and creator bookings.',
     primaryCta: 'Start private booking',
-    secondaryCta: 'Explore profiles'
+    secondaryCta: 'Explore profiles',
+    desktopImageUrl: '',
+    mobileImageUrl: '',
+    imageAlt: '',
+    whatsappCta: 'WhatsApp'
   },
   trustCards: [
     { id: 'discreet', title: 'Discreet by design', text: 'Requests are handled privately with clear expectations before confirmation.' },

@@ -1,6 +1,6 @@
-import Image from 'next/image';
 import Link from 'next/link';
 import type { Package, Profile, SiteData } from '@/lib/domain';
+import { buildPublicWhatsAppUrl } from '@/lib/public-whatsapp';
 import { ProfileCard } from './profile-card';
 
 export function getVisiblePublicData(data: SiteData): { profiles: Profile[]; packages: Package[] } {
@@ -10,7 +10,19 @@ export function getVisiblePublicData(data: SiteData): { profiles: Profile[]; pac
   };
 }
 
+export function selectHeroImage(hero: SiteData['hero'], viewport: 'desktop' | 'mobile'): string {
+  if (viewport === 'desktop') return hero.desktopImageUrl.trim();
+  return hero.mobileImageUrl.trim() || hero.desktopImageUrl.trim();
+}
+
 export function HeroSection({ data }: { data: SiteData }) {
+  const desktopCustomImage = selectHeroImage(data.hero, 'desktop');
+  const mobileCustomImage = selectHeroImage(data.hero, 'mobile');
+  const desktopImage = desktopCustomImage || '/rafay-hero.jpg';
+  const mobileImage = mobileCustomImage || desktopImage;
+  const whatsappUrl = buildPublicWhatsAppUrl(data.whatsappNumber);
+  const heroAlt = data.hero.imageAlt.trim() || 'Glamorous adult RAFAY nightlife profile';
+
   return (
     <section className="hero-public">
       <div className="hero-glow hero-glow--one" /><div className="hero-glow hero-glow--two" />
@@ -19,11 +31,17 @@ export function HeroSection({ data }: { data: SiteData }) {
           <div className="hero-brand-line"><span className="rafay-kicker">RAFAY AFTER DARK</span><span className="adult-pill">18+ ADULTS ONLY</span></div>
           <h1 className="rafay-display hero-title">{data.hero.heading}</h1>
           <p>{data.hero.body}</p>
-          <div className="hero-actions"><Link href="/booking" className="rafay-button rafay-button--primary">{data.hero.primaryCta}</Link><a href="#profiles" className="rafay-button">{data.hero.secondaryCta}</a></div>
+          <div className="hero-actions">
+            <Link href="/booking" className="rafay-button rafay-button--primary">{data.hero.primaryCta}</Link>
+            {whatsappUrl && <a href={whatsappUrl} target="_blank" rel="noreferrer" className="rafay-button rafay-button--whatsapp">{data.hero.whatsappCta || 'WhatsApp'}</a>}
+          </div>
           <div className="hero-proof"><span>Verified adult profiles</span><span>Private requests</span><span>Discreet coordination</span><span>Event ready</span></div>
         </div>
-        <div className="hero-art">
-          <Image src="/rafay-hero.jpg" alt="Glamorous adult RAFAY nightlife profile" fill priority sizes="(max-width: 1000px) 100vw, 45vw" className="hero-photo" />
+        <div className="hero-art hero-art--media">
+          <picture className="hero-picture">
+            <source media="(max-width: 700px)" srcSet={mobileImage} />
+            <img src={desktopImage} alt={heroAlt} className="hero-photo hero-photo--responsive" />
+          </picture>
           <div className="hero-art-shade" />
           <div className="hero-monogram" aria-hidden="true">R</div>
           <div className="hero-floating-card"><span>RAFAY EXCLUSIVE</span><strong>Private event presence</strong><small>Social nights · launches · celebrations</small></div>
