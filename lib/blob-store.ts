@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { dirname, isAbsolute, join } from 'node:path';
 import { BlobPreconditionFailedError, del, get, head, list, put } from '@vercel/blob';
 import { BookingRequestSchema, SiteDataSchema, type BookingRequest, type SiteData } from './domain';
 import { DEFAULT_SITE_DATA } from './defaults';
@@ -16,12 +19,99 @@ export class SiteDataConflictError extends Error {
   }
 }
 
+function filesystemRoot(): string | null {
+  const root = process.env.RAFAY_DATA_DIR?.trim();
+  return root && isAbsolute(root) ? root : null;
+}
+
+function localEtag(text: string): string {
+  return createHash('sha256').update(text).digest('hex');
+}
+
+function localConfigFile(root: string): string {
+  return join(root, 'config', 'site-data.json');
+}
+
+function localBookingFile(root: string, id: string): string {
+  return join(root, 'bookings', `${safeFileName(id)}.json`);
+}
+
+function isMissingFile(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && 'code' in error && (error as { code?: unknown }).code === 'ENOENT');
+}
+
+async function atomicWrite(path: string, body: string | Uint8Array): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  const tempPath = `${path}.${crypto.randomUUID()}.tmp`;
+  await writeFile(tempPath, body);
+  await rename(tempPath, path);
+}
+
+async function seedLocalSiteData(root: string): Promise<{ data: SiteData; etag: string }> {
+  const seeded = SiteDataSchema.parse({ ...DEFAULT_SITE_DATA, updatedAt: new Date().toISOString() });
+  const text = JSON.stringify(seeded);
+  await atomicWrite(localConfigFile(root), text);
+  return { data: seeded, etag: localEtag(text) };
+}
+
+async function loadLocalSiteData(root: string): Promise<{ data: SiteData; etag: string }> {
+  try {
+    const text = await readFile(localConfigFile(root), 'utf8');
+    return { data: SiteDataSchema.parse(JSON.parse(text)), etag: localEtag(text) };
+  } catch (error) {
+    if (isMissingFile(error)) return seedLocalSiteData(root);
+    throw error;
+  }
+}
+
+async function saveLocalSiteData(root: string, next: SiteData, expectedEtag: string): Promise<{ data: SiteData; etag: string }> {
+  if (expectedEtag === READ_ERROR_ETAG) {
+    throw new Error('Persistent storage is temporarily unavailable. Reload after the storage connection is healthy.');
+  }
+
+  const current = await loadLocalSiteData(root);
+  if (current.etag !== expectedEtag) throw new SiteDataConflictError();
+
+  const validated = SiteDataSchema.parse({
+    ...next,
+    brandName: 'RAFAY',
+    updatedAt: new Date().toISOString(),
+    version: next.version + 1
+  });
+  const text = JSON.stringify(validated);
+  await atomicWrite(localConfigFile(root), text);
+  return { data: validated, etag: localEtag(text) };
+}
+
+async function listLocalBookings(root: string): Promise<BookingRequest[]> {
+  const directory = join(root, 'bookings');
+  let names: string[];
+  try {
+    names = await readdir(directory);
+  } catch (error) {
+    if (isMissingFile(error)) return [];
+    throw error;
+  }
+
+  const bookings = await Promise.all(
+    names
+      .filter((name) => name.endsWith('.json'))
+      .map(async (name) => {
+        const text = await readFile(join(directory, name), 'utf8');
+        return BookingRequestSchema.parse(JSON.parse(text));
+      })
+  );
+  return bookings.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
 export function hasBlobStorageConfig(): boolean {
+  if (filesystemRoot()) return true;
   if (process.env.BLOB_READ_WRITE_TOKEN?.trim()) return true;
   return Boolean(process.env.BLOB_STORE_ID?.trim());
 }
 
 export function hasPrivateBookingStorageConfig(): boolean {
+  if (filesystemRoot()) return true;
   return Boolean(process.env.RAFAY_PRIVATE_BLOB_READ_WRITE_TOKEN?.trim());
 }
 
@@ -60,6 +150,15 @@ function defaultSiteDataAfterReadError(): { data: SiteData; etag: string } {
 }
 
 export async function loadSiteData(): Promise<{ data: SiteData; etag: string }> {
+  const root = filesystemRoot();
+  if (root) {
+    try {
+      return await loadLocalSiteData(root);
+    } catch {
+      return defaultSiteDataAfterReadError();
+    }
+  }
+
   if (!hasBlobStorageConfig()) {
     return { data: DEFAULT_SITE_DATA, etag: UNCONFIGURED_ETAG };
   }
@@ -89,6 +188,9 @@ export async function loadSiteData(): Promise<{ data: SiteData; etag: string }> 
 }
 
 export async function saveSiteData(next: SiteData, expectedEtag: string): Promise<{ data: SiteData; etag: string }> {
+  const root = filesystemRoot();
+  if (root) return saveLocalSiteData(root, next, expectedEtag);
+
   if (expectedEtag === READ_ERROR_ETAG) {
     throw new Error('Blob storage is temporarily unavailable. Reload after the storage connection is healthy.');
   }
@@ -110,8 +212,14 @@ export async function saveSiteData(next: SiteData, expectedEtag: string): Promis
 }
 
 export async function createBooking(booking: BookingRequest): Promise<BookingRequest> {
-  const token = privateBookingToken();
   const validated = BookingRequestSchema.parse(booking);
+  const root = filesystemRoot();
+  if (root) {
+    await atomicWrite(localBookingFile(root, validated.id), JSON.stringify(validated));
+    return validated;
+  }
+
+  const token = privateBookingToken();
   await put(bookingPath(validated.id), JSON.stringify(validated), {
     access: 'private',
     addRandomSuffix: false,
@@ -122,6 +230,9 @@ export async function createBooking(booking: BookingRequest): Promise<BookingReq
 }
 
 export async function listBookings(): Promise<BookingRequest[]> {
+  const root = filesystemRoot();
+  if (root) return listLocalBookings(root);
+
   const token = privateBookingToken();
   const result = await list({ prefix: BOOKING_PREFIX, limit: 1000, token });
   const bookings = await Promise.all(result.blobs.map(async (blob) => {
@@ -132,6 +243,21 @@ export async function listBookings(): Promise<BookingRequest[]> {
 }
 
 export async function updateBooking(id: string, patch: Partial<Pick<BookingRequest, 'status'>>): Promise<BookingRequest> {
+  const root = filesystemRoot();
+  if (root) {
+    const path = localBookingFile(root, id);
+    let current: BookingRequest;
+    try {
+      current = BookingRequestSchema.parse(JSON.parse(await readFile(path, 'utf8')));
+    } catch (error) {
+      if (isMissingFile(error)) throw new Error('Booking not found');
+      throw error;
+    }
+    const next = BookingRequestSchema.parse({ ...current, ...patch, updatedAt: new Date().toISOString() });
+    await atomicWrite(path, JSON.stringify(next));
+    return next;
+  }
+
   const token = privateBookingToken();
   const path = bookingPath(id);
   const current = await readJson<unknown>(path, 'private', token);
@@ -143,6 +269,12 @@ export async function updateBooking(id: string, patch: Partial<Pick<BookingReque
 }
 
 export async function deleteBooking(id: string): Promise<void> {
+  const root = filesystemRoot();
+  if (root) {
+    await rm(localBookingFile(root, id), { force: true });
+    return;
+  }
+
   const token = privateBookingToken();
   await del(bookingPath(id), { token });
 }
