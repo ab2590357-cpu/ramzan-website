@@ -1,7 +1,6 @@
-import { del, put } from '@vercel/blob';
 import { NextResponse } from 'next/server';
 import { isValidAdminSecret } from '@/lib/admin-auth';
-import { hasBlobStorageConfig, mediaPath } from '@/lib/blob-store';
+import { deleteMedia, hasBlobStorageConfig, saveMedia } from '@/lib/blob-store';
 import { safeFileName } from '@/lib/validators';
 
 export const dynamic = 'force-dynamic';
@@ -28,6 +27,13 @@ function hiddenNotFound() {
 function storageUnavailable() {
   return NextResponse.json(
     { error: 'Blob storage is not connected to this Vercel project. Connect a Vercel Blob store and redeploy.' },
+    { status: 503 }
+  );
+}
+
+function storageFailure() {
+  return NextResponse.json(
+    { error: 'Media storage is temporarily unavailable. Please try again.' },
     { status: 503 }
   );
 }
@@ -63,14 +69,33 @@ export async function POST(request: Request, context: Context) {
 
   const originalBase = safeFileName(file.name.replace(/\.[^.]+$/, '') || 'image');
   const filename = `${crypto.randomUUID()}-${originalBase}.${EXTENSIONS[file.type]}`;
-  const pathname = mediaPath(scope, filename, scope === 'profile' ? String(profileId) : undefined);
-  const blob = await put(pathname, file, {
-    access: 'public',
-    addRandomSuffix: false,
-    contentType: file.type
-  });
 
-  return NextResponse.json({ url: blob.url, pathname: blob.pathname, contentType: file.type, size: file.size }, { status: 201 });
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const normalizedFile = new Blob([bytes], { type: file.type });
+    const media = await saveMedia(scope, filename, normalizedFile, file.type, scope === 'profile' ? String(profileId) : undefined);
+    return NextResponse.json({ url: media.url, pathname: media.pathname, contentType: file.type, size: file.size }, { status: 201 });
+  } catch {
+    return storageFailure();
+  }
+}
+
+function mediaPathFromUrl(url: string): string | null {
+  if (url.startsWith('/media/')) {
+    const relative = url.slice('/media/'.length);
+    if (!relative) return null;
+    return `rafay/media/${relative}`;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'https:' || !parsed.hostname.endsWith('.blob.vercel-storage.com')) return null;
+  const pathname = parsed.pathname.replace(/^\/+/, '');
+  return pathname.startsWith('rafay/media/') ? pathname : null;
 }
 
 export async function DELETE(request: Request, context: Context) {
@@ -88,17 +113,13 @@ export async function DELETE(request: Request, context: Context) {
     return NextResponse.json({ error: 'Invalid media reference.' }, { status: 400 });
   }
 
-  const url = (body as { url: string }).url;
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return NextResponse.json({ error: 'Invalid media reference.' }, { status: 400 });
-  }
-  if (parsed.protocol !== 'https:' || !parsed.hostname.endsWith('.blob.vercel-storage.com') || !parsed.pathname.includes('/rafay/media/')) {
-    return NextResponse.json({ error: 'Invalid media reference.' }, { status: 400 });
-  }
+  const pathname = mediaPathFromUrl((body as { url: string }).url);
+  if (!pathname) return NextResponse.json({ error: 'Invalid media reference.' }, { status: 400 });
 
-  await del(url);
-  return new Response(null, { status: 204 });
+  try {
+    await deleteMedia(pathname);
+    return new Response(null, { status: 204 });
+  } catch {
+    return storageFailure();
+  }
 }

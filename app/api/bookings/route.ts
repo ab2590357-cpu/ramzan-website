@@ -12,6 +12,13 @@ function privateStorageUnavailable() {
   );
 }
 
+function bookingStorageFailure() {
+  return NextResponse.json(
+    { error: 'The booking storage service is temporarily unavailable. Please try again shortly.' },
+    { status: 503 }
+  );
+}
+
 export async function POST(request: Request) {
   let raw: unknown;
   try { raw = await request.json(); } catch { return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 }); }
@@ -37,7 +44,13 @@ export async function POST(request: Request) {
     createdAt: now,
     updatedAt: now
   });
-  await createBooking(booking);
+
+  try {
+    await createBooking(booking);
+  } catch {
+    return bookingStorageFailure();
+  }
+
   const whatsappUrl = data.whatsappNumber ? buildWhatsAppUrl(data.whatsappNumber, booking, data.defaultPaymentNote) : '';
   return NextResponse.json({ booking, whatsappUrl }, { status: 201 });
 }
