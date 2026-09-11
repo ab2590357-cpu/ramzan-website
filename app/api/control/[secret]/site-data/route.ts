@@ -50,6 +50,10 @@ export async function PUT(request: Request, context: Context) {
     if (error instanceof SiteDataConflictError) {
       return NextResponse.json({ error: 'Content changed in another session. Refresh before saving.' }, { status: 409 });
     }
-    throw error;
+    console.error('[RAFAY] Failed to save site data', error);
+    return NextResponse.json(
+      { error: 'Site content storage is temporarily unavailable. Please reload and try again.' },
+      { status: 503, headers: { 'Cache-Control': 'no-store' } }
+    );
   }
 }
