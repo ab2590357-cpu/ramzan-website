@@ -24,10 +24,8 @@ function filesystemRoot(): string | null {
   return root && isAbsolute(root) ? root : null;
 }
 
-function publicBlobToken(): string {
-  const token = process.env.BLOB_READ_WRITE_TOKEN?.trim();
-  if (!token) throw new Error('Public Blob storage is not configured.');
-  return token;
+function publicBlobToken(): string | undefined {
+  return process.env.BLOB_READ_WRITE_TOKEN?.trim() || undefined;
 }
 
 function logPublicBlobFailure(operation: string, error: unknown): void {
@@ -145,7 +143,8 @@ function contentTypeForMedia(pathname: string): string {
 
 export function hasBlobStorageConfig(): boolean {
   if (filesystemRoot()) return true;
-  return Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
+  if (publicBlobToken()) return true;
+  return Boolean(process.env.BLOB_STORE_ID?.trim());
 }
 
 export function hasPrivateBookingStorageConfig(): boolean {
@@ -193,12 +192,10 @@ export async function saveMedia(
   }
 
   const token = publicBlobToken();
-  const blob = await put(pathname, body, {
-    access: 'public',
-    addRandomSuffix: false,
-    contentType,
-    token
-  });
+  const options = { access: 'public' as const, addRandomSuffix: false, contentType };
+  const blob = token
+    ? await put(pathname, body, { ...options, token })
+    : await put(pathname, body, options);
   return { url: blob.url, pathname: blob.pathname };
 }
 
@@ -243,7 +240,7 @@ export async function loadSiteData(): Promise<{ data: SiteData; etag: string }> 
 
   const token = publicBlobToken();
   try {
-    const metadata = await head(CONFIG_PATH, { token });
+    const metadata = token ? await head(CONFIG_PATH, { token }) : await head(CONFIG_PATH);
     const raw = await readJson<unknown>(metadata.url, 'public', token);
     return { data: SiteDataSchema.parse(raw), etag: metadata.etag };
   } catch (error) {
@@ -256,12 +253,10 @@ export async function loadSiteData(): Promise<{ data: SiteData; etag: string }> 
 
     try {
       const seeded = SiteDataSchema.parse({ ...DEFAULT_SITE_DATA, updatedAt: new Date().toISOString() });
-      const blob = await put(CONFIG_PATH, JSON.stringify(seeded), {
-        access: 'public',
-        addRandomSuffix: false,
-        contentType: 'application/json',
-        token
-      });
+      const options = { access: 'public' as const, addRandomSuffix: false, contentType: 'application/json' };
+      const blob = token
+        ? await put(CONFIG_PATH, JSON.stringify(seeded), { ...options, token })
+        : await put(CONFIG_PATH, JSON.stringify(seeded), options);
       return { data: seeded, etag: blob.etag };
     } catch (seedError) {
       logPublicBlobFailure('site-data bootstrap', seedError);
@@ -283,14 +278,16 @@ export async function saveSiteData(next: SiteData, expectedEtag: string): Promis
   const token = publicBlobToken();
   const validated = SiteDataSchema.parse({ ...next, brandName: 'RAFAY', updatedAt: new Date().toISOString(), version: next.version + 1 });
   try {
-    const blob = await put(CONFIG_PATH, JSON.stringify(validated), {
-      access: 'public',
+    const options = {
+      access: 'public' as const,
       addRandomSuffix: false,
       allowOverwrite: true,
       ifMatch: expectedEtag,
-      contentType: 'application/json',
-      token
-    });
+      contentType: 'application/json'
+    };
+    const blob = token
+      ? await put(CONFIG_PATH, JSON.stringify(validated), { ...options, token })
+      : await put(CONFIG_PATH, JSON.stringify(validated), options);
     return { data: validated, etag: blob.etag };
   } catch (error) {
     if (error instanceof BlobPreconditionFailedError) throw new SiteDataConflictError();
@@ -369,7 +366,9 @@ export async function deleteBooking(id: string): Promise<void> {
 
 export async function listMedia(prefix = MEDIA_PREFIX) {
   const token = publicBlobToken();
-  const result = await list({ prefix, limit: 1000, token });
+  const result = token
+    ? await list({ prefix, limit: 1000, token })
+    : await list({ prefix, limit: 1000 });
   return result.blobs;
 }
 
@@ -381,5 +380,6 @@ export async function deleteMedia(pathname: string): Promise<void> {
     return;
   }
   const token = publicBlobToken();
-  await del(pathname, { token });
+  if (token) await del(pathname, { token });
+  else await del(pathname);
 }
