@@ -8,15 +8,29 @@ type Context = { params: Promise<{ secret: string }> };
 
 function hiddenNotFound() { return new Response('', { status: 404 }); }
 function privateStorageUnavailable() {
-  return NextResponse.json({ error: 'Private booking storage is not configured.' }, { status: 503 });
+  return NextResponse.json(
+    { error: 'Private booking storage is not configured.' },
+    { status: 503, headers: { 'Cache-Control': 'no-store' } }
+  );
+}
+function bookingStorageFailure(operation: string, error: unknown) {
+  console.error(`[RAFAY] Booking storage ${operation} failed`, { name: error instanceof Error ? error.name : 'UnknownError' });
+  return NextResponse.json(
+    { error: 'Booking storage is temporarily unavailable. Please try again.' },
+    { status: 503, headers: { 'Cache-Control': 'no-store' } }
+  );
 }
 
 export async function GET(_request: Request, context: Context) {
   const { secret } = await context.params;
   if (!isValidAdminSecret(secret)) return hiddenNotFound();
   if (!hasPrivateBookingStorageConfig()) return privateStorageUnavailable();
-  const bookings = await listBookings();
-  return NextResponse.json({ bookings }, { headers: { 'Cache-Control': 'no-store' } });
+  try {
+    const bookings = await listBookings();
+    return NextResponse.json({ bookings }, { headers: { 'Cache-Control': 'no-store' } });
+  } catch (error) {
+    return bookingStorageFailure('list', error);
+  }
 }
 
 export async function PATCH(request: Request, context: Context) {
@@ -29,8 +43,15 @@ export async function PATCH(request: Request, context: Context) {
   const status = BookingStatusSchema.safeParse(input.status);
   if (typeof input.id !== 'string' || !input.id.trim() || !status.success) return NextResponse.json({ error: 'Invalid booking update.' }, { status: 400 });
   if (!hasPrivateBookingStorageConfig()) return privateStorageUnavailable();
-  const booking = await updateBooking(input.id, { status: status.data });
-  return NextResponse.json({ booking }, { headers: { 'Cache-Control': 'no-store' } });
+  try {
+    const booking = await updateBooking(input.id, { status: status.data });
+    return NextResponse.json({ booking }, { headers: { 'Cache-Control': 'no-store' } });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Booking not found') {
+      return NextResponse.json({ error: 'Booking not found.' }, { status: 404, headers: { 'Cache-Control': 'no-store' } });
+    }
+    return bookingStorageFailure('update', error);
+  }
 }
 
 export async function DELETE(request: Request, context: Context) {
@@ -41,6 +62,10 @@ export async function DELETE(request: Request, context: Context) {
   const id = body && typeof body === 'object' && 'id' in body ? (body as { id?: unknown }).id : undefined;
   if (typeof id !== 'string' || !id.trim()) return NextResponse.json({ error: 'Invalid booking id.' }, { status: 400 });
   if (!hasPrivateBookingStorageConfig()) return privateStorageUnavailable();
-  await deleteBooking(id);
-  return new Response(null, { status: 204 });
+  try {
+    await deleteBooking(id);
+    return new Response(null, { status: 204 });
+  } catch (error) {
+    return bookingStorageFailure('delete', error);
+  }
 }
