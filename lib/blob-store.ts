@@ -104,6 +104,29 @@ async function listLocalBookings(root: string): Promise<BookingRequest[]> {
   return bookings.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+function localMediaRelativePath(pathname: string): string {
+  let normalized = pathname.replace(/\\/g, '/').replace(/^\/+/, '');
+  if (normalized.startsWith(MEDIA_PREFIX)) normalized = normalized.slice(MEDIA_PREFIX.length);
+  const parts = normalized.split('/');
+  if (!normalized || parts.some((part) => !part || part === '.' || part === '..' || part.includes('\0'))) {
+    throw new Error('Invalid RAFAY media path');
+  }
+  return parts.join('/');
+}
+
+function localMediaFile(root: string, pathname: string): string {
+  const relative = localMediaRelativePath(pathname);
+  return join(root, 'media', ...relative.split('/'));
+}
+
+function contentTypeForMedia(pathname: string): string {
+  const lower = pathname.toLowerCase();
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  return 'application/octet-stream';
+}
+
 export function hasBlobStorageConfig(): boolean {
   if (filesystemRoot()) return true;
   if (process.env.BLOB_READ_WRITE_TOKEN?.trim()) return true;
@@ -136,6 +159,43 @@ export function mediaPath(scope: 'profile' | 'site', filename: string, profileId
     return `${MEDIA_PREFIX}profiles/${safeFileName(profileId)}/${name}`;
   }
   return `${MEDIA_PREFIX}site/${name}`;
+}
+
+export async function saveMedia(
+  scope: 'profile' | 'site',
+  filename: string,
+  body: Blob,
+  contentType: string,
+  profileId?: string
+): Promise<{ url: string; pathname: string }> {
+  const pathname = mediaPath(scope, filename, profileId);
+  const root = filesystemRoot();
+  if (root) {
+    const relative = localMediaRelativePath(pathname);
+    const bytes = new Uint8Array(await body.arrayBuffer());
+    await atomicWrite(localMediaFile(root, relative), bytes);
+    return { url: `/media/${relative}`, pathname };
+  }
+
+  const blob = await put(pathname, body, {
+    access: 'public',
+    addRandomSuffix: false,
+    contentType
+  });
+  return { url: blob.url, pathname: blob.pathname };
+}
+
+export async function readMedia(pathname: string): Promise<{ body: Uint8Array; contentType: string } | null> {
+  const root = filesystemRoot();
+  if (!root) return null;
+  const relative = localMediaRelativePath(pathname);
+  try {
+    const body = await readFile(localMediaFile(root, relative));
+    return { body: new Uint8Array(body), contentType: contentTypeForMedia(relative) };
+  } catch (error) {
+    if (isMissingFile(error)) return null;
+    throw error;
+  }
 }
 
 async function readJson<T>(urlOrPathname: string, access: 'public' | 'private', token?: string): Promise<T | null> {
@@ -286,5 +346,10 @@ export async function listMedia(prefix = MEDIA_PREFIX) {
 
 export async function deleteMedia(pathname: string): Promise<void> {
   if (!pathname.startsWith(MEDIA_PREFIX)) throw new Error('Invalid RAFAY media path');
+  const root = filesystemRoot();
+  if (root) {
+    await rm(localMediaFile(root, pathname), { force: true });
+    return;
+  }
   await del(pathname);
 }
