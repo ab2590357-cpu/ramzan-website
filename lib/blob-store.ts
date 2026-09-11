@@ -15,6 +15,11 @@ export class SiteDataConflictError extends Error {
   }
 }
 
+export function hasBlobStorageConfig(): boolean {
+  if (process.env.BLOB_READ_WRITE_TOKEN?.trim()) return true;
+  return Boolean(process.env.BLOB_STORE_ID?.trim() && process.env.VERCEL_OIDC_TOKEN?.trim());
+}
+
 export function configPath(): string {
   return CONFIG_PATH;
 }
@@ -40,7 +45,7 @@ async function readJson<T>(urlOrPathname: string, access: 'public' | 'private'):
 }
 
 export async function loadSiteData(): Promise<{ data: SiteData; etag: string }> {
-  if (!process.env.BLOB_READ_WRITE_TOKEN?.trim()) {
+  if (!hasBlobStorageConfig()) {
     return { data: DEFAULT_SITE_DATA, etag: UNCONFIGURED_ETAG };
   }
 

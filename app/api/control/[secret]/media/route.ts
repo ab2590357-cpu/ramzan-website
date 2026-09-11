@@ -1,7 +1,7 @@
 import { del, put } from '@vercel/blob';
 import { NextResponse } from 'next/server';
 import { isValidAdminSecret } from '@/lib/admin-auth';
-import { mediaPath } from '@/lib/blob-store';
+import { hasBlobStorageConfig, mediaPath } from '@/lib/blob-store';
 import { safeFileName } from '@/lib/validators';
 
 export const dynamic = 'force-dynamic';
@@ -25,6 +25,13 @@ function hiddenNotFound() {
   return new Response('', { status: 404 });
 }
 
+function storageUnavailable() {
+  return NextResponse.json(
+    { error: 'Blob storage is not connected to this Vercel project. Connect a Vercel Blob store and redeploy.' },
+    { status: 503 }
+  );
+}
+
 function isUploadedFile(value: FormDataEntryValue | null): value is File {
   return value !== null && typeof value !== 'string' && typeof value.name === 'string' && typeof value.type === 'string' && typeof value.size === 'number';
 }
@@ -32,6 +39,7 @@ function isUploadedFile(value: FormDataEntryValue | null): value is File {
 export async function POST(request: Request, context: Context) {
   const { secret } = await context.params;
   if (!isValidAdminSecret(secret)) return hiddenNotFound();
+  if (!hasBlobStorageConfig()) return storageUnavailable();
 
   let form: FormData;
   try {
@@ -68,6 +76,7 @@ export async function POST(request: Request, context: Context) {
 export async function DELETE(request: Request, context: Context) {
   const { secret } = await context.params;
   if (!isValidAdminSecret(secret)) return hiddenNotFound();
+  if (!hasBlobStorageConfig()) return storageUnavailable();
 
   let body: unknown;
   try {
