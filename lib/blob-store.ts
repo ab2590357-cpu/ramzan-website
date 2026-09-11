@@ -65,7 +65,8 @@ export async function loadSiteData(): Promise<{ data: SiteData; etag: string }> 
     return { data: SiteDataSchema.parse(raw), etag: metadata.etag };
   } catch (error) {
     const status = typeof error === 'object' && error && 'status' in error ? Number((error as { status?: unknown }).status) : undefined;
-    if (status !== 404) throw error;
+    const name = typeof error === 'object' && error && 'name' in error ? String((error as { name?: unknown }).name) : undefined;
+    if (status !== 404 && name !== 'BlobNotFoundError') throw error;
     const seeded = { ...DEFAULT_SITE_DATA, updatedAt: new Date().toISOString() };
     const blob = await put(CONFIG_PATH, JSON.stringify(seeded), {
       access: 'public',
