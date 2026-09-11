@@ -1,0 +1,54 @@
+name: RAFAY Vercel Prebuilt Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    if: contains(github.event.head_commit.message, '[vercel-prebuilt]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN || secrets.VERCEL_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check deployment credential
+        id: credential
+        shell: bash
+        run: |
+          if [ -n "$VERCEL_TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No VERCEL_TOKEN or VERCEL_ACCESS_TOKEN repository secret is configured; prebuilt deployment is skipped."
+          fi
+
+      - name: Install dependencies
+        if: steps.credential.outputs.available == 'true'
+        run: npm install
+
+      - name: Link rafay-web
+        if: steps.credential.outputs.available == 'true'
+        run: npx vercel@59.15.1 link --yes --project rafay-web --scope abdulteam --token="$VERCEL_TOKEN"
+
+      - name: Pull production environment
+        if: steps.credential.outputs.available == 'true'
+        run: npx vercel@59.15.1 pull --yes --environment=production --scope abdulteam --token="$VERCEL_TOKEN"
+
+      - name: Build production locally
+        if: steps.credential.outputs.available == 'true'
+        run: npx vercel@59.15.1 build --prod --scope abdulteam --token="$VERCEL_TOKEN"
+
+      - name: Deploy prebuilt production
+        if: steps.credential.outputs.available == 'true'
+        run: npx vercel@59.15.1 deploy --prebuilt --prod --scope abdulteam --token="$VERCEL_TOKEN"
+
+      - name: Verify production release
+        if: steps.credential.outputs.available == 'true'
+        run: npm run smoke:production -- https://rafay-web.vercel.app "$GITHUB_SHA"
