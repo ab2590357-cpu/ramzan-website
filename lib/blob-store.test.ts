@@ -150,17 +150,17 @@ describe('RAFAY runtime fallback', () => {
 
     const notFound = new Error('Blob not found');
     notFound.name = 'BlobNotFoundError';
-    headMock
-      .mockRejectedValueOnce(notFound)
-      .mockResolvedValueOnce({ etag: 'etag-seeded' });
+    headMock.mockRejectedValueOnce(notFound);
     putMock.mockResolvedValue({
-      url: 'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json'
+      url: 'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
+      etag: 'etag-seeded'
     });
 
     const result = await loadSiteData();
 
     expect(result.data.brandName).toBe('RAFAY');
     expect(result.etag).toBe('etag-seeded');
+    expect(headMock).toHaveBeenCalledOnce();
     expect(putMock).toHaveBeenCalledWith(
       'rafay/config/site-data.json',
       expect.any(String),
