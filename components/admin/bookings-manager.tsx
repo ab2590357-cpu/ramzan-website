@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { BookingRequest, BookingStatus } from '@/lib/domain';
+import { readJsonResponse } from '@/lib/http-response';
 import styles from './admin.module.css';
 
 export const BOOKING_STATUS_OPTIONS: BookingStatus[] = ['Pending','Contacted','Confirmed','Completed','Cancelled'];
@@ -18,6 +19,8 @@ export function filterBookings(bookings: BookingRequest[], status: string, query
   });
 }
 
+type BookingsPayload = { bookings?: BookingRequest[]; booking?: BookingRequest; error?: string };
+
 export function BookingsManager({ secret }: { secret: string }) {
   const [bookings, setBookings] = useState<BookingRequest[]>([]);
   const [status, setStatus] = useState('all');
@@ -31,8 +34,9 @@ export function BookingsManager({ secret }: { secret: string }) {
     setState('loading'); setMessage('');
     try {
       const response = await fetch(endpoint, { cache: 'no-store' });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || 'Could not load bookings.');
+      const payload = await readJsonResponse<BookingsPayload>(response, 'Booking load');
+      if (!response.ok) throw new Error(payload.error || `Could not load bookings (${response.status}).`);
+      if (!Array.isArray(payload.bookings)) throw new Error(payload.error || 'Could not load bookings: invalid server response.');
       setBookings(payload.bookings);
       setState('ready');
     } catch (error) {
@@ -47,9 +51,10 @@ export function BookingsManager({ secret }: { secret: string }) {
     setMessage('');
     try {
       const response = await fetch(endpoint, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: booking.id, status: nextStatus }) });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || 'Status update failed.');
-      setBookings((items) => items.map((item) => item.id === booking.id ? payload.booking : item));
+      const payload = await readJsonResponse<BookingsPayload>(response, 'Status update');
+      if (!response.ok) throw new Error(payload.error || `Status update failed (${response.status}).`);
+      if (!payload.booking) throw new Error(payload.error || 'Status update failed: invalid server response.');
+      setBookings((items) => items.map((item) => item.id === booking.id ? payload.booking! : item));
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Status update failed.'); }
   };
 
@@ -58,7 +63,10 @@ export function BookingsManager({ secret }: { secret: string }) {
     setMessage('');
     try {
       const response = await fetch(endpoint, { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: booking.id }) });
-      if (!response.ok) { const payload = await response.json(); throw new Error(payload.error || 'Delete failed.'); }
+      if (!response.ok) {
+        const payload = await readJsonResponse<{ error?: string }>(response, 'Delete');
+        throw new Error(payload.error || `Delete failed (${response.status}).`);
+      }
       setBookings((items) => items.filter((item) => item.id !== booking.id));
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Delete failed.'); }
   };

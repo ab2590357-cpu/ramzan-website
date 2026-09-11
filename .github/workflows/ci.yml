@@ -2,9 +2,10 @@ name: RAFAY CI
 
 on:
   push:
-    branches: [rafay-booking-admin]
+    branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   verify:

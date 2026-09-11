@@ -26,15 +26,15 @@ function hiddenNotFound() {
 
 function storageUnavailable() {
   return NextResponse.json(
-    { error: 'Blob storage is not connected to this Vercel project. Connect a Vercel Blob store and redeploy.' },
-    { status: 503 }
+    { error: 'Public media storage is not configured for this deployment. Connect the public Blob store or configure its token, then redeploy.' },
+    { status: 503, headers: { 'Cache-Control': 'no-store' } }
   );
 }
 
 function storageFailure() {
   return NextResponse.json(
     { error: 'Media storage is temporarily unavailable. Please try again.' },
-    { status: 503 }
+    { status: 503, headers: { 'Cache-Control': 'no-store' } }
   );
 }
 
@@ -75,7 +75,8 @@ export async function POST(request: Request, context: Context) {
     const normalizedFile = new Blob([bytes], { type: file.type });
     const media = await saveMedia(scope, filename, normalizedFile, file.type, scope === 'profile' ? String(profileId) : undefined);
     return NextResponse.json({ url: media.url, pathname: media.pathname, contentType: file.type, size: file.size }, { status: 201 });
-  } catch {
+  } catch (error) {
+    console.error('[RAFAY] Media upload failed', { name: error instanceof Error ? error.name : 'UnknownError' });
     return storageFailure();
   }
 }
@@ -119,7 +120,8 @@ export async function DELETE(request: Request, context: Context) {
   try {
     await deleteMedia(pathname);
     return new Response(null, { status: 204 });
-  } catch {
+  } catch (error) {
+    console.error('[RAFAY] Media delete failed', { name: error instanceof Error ? error.name : 'UnknownError' });
     return storageFailure();
   }
 }
