@@ -42,3 +42,16 @@ it('keeps the previous preview after a failed upload', async () => {
   expect(onChange).not.toHaveBeenCalled();
   expect(screen.getByRole('img', { name: 'RAFAY logo' })).toHaveAttribute('src', 'https://example.com/logo.webp');
 });
+
+it('shows a stable HTTP error instead of a JSON parse error when Vercel returns an empty response', async () => {
+  const onChange = vi.fn();
+  global.fetch = vi.fn(async () => new Response('', { status: 503 })) as typeof fetch;
+
+  render(<SiteMediaUploader secret="secret-key" label="Desktop hero" currentUrl="" previewAlt="Hero" onChange={onChange} />);
+  const input = screen.getByLabelText(/desktop hero/i) as HTMLInputElement;
+  fireEvent.change(input, { target: { files: [new File(['image'], 'hero.webp', { type: 'image/webp' })] } });
+
+  expect(await screen.findByText('Upload failed (503).')).toBeInTheDocument();
+  expect(onChange).not.toHaveBeenCalled();
+  expect(screen.queryByText(/unexpected end of json/i)).not.toBeInTheDocument();
+});

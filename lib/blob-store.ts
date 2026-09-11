@@ -20,6 +20,16 @@ export function hasBlobStorageConfig(): boolean {
   return Boolean(process.env.BLOB_STORE_ID?.trim() && process.env.VERCEL_OIDC_TOKEN?.trim());
 }
 
+export function hasPrivateBookingStorageConfig(): boolean {
+  return Boolean(process.env.RAFAY_PRIVATE_BLOB_READ_WRITE_TOKEN?.trim());
+}
+
+function privateBookingToken(): string {
+  const token = process.env.RAFAY_PRIVATE_BLOB_READ_WRITE_TOKEN?.trim();
+  if (!token) throw new Error('Private booking storage is not configured.');
+  return token;
+}
+
 export function configPath(): string {
   return CONFIG_PATH;
 }
@@ -37,8 +47,8 @@ export function mediaPath(scope: 'profile' | 'site', filename: string, profileId
   return `${MEDIA_PREFIX}site/${name}`;
 }
 
-async function readJson<T>(urlOrPathname: string, access: 'public' | 'private'): Promise<T | null> {
-  const result = await get(urlOrPathname, { access });
+async function readJson<T>(urlOrPathname: string, access: 'public' | 'private', token?: string): Promise<T | null> {
+  const result = await get(urlOrPathname, token ? { access, token } : { access });
   if (!result) return null;
   const text = await new Response(result.stream).text();
   return JSON.parse(text) as T;
@@ -86,36 +96,41 @@ export async function saveSiteData(next: SiteData, expectedEtag: string): Promis
 }
 
 export async function createBooking(booking: BookingRequest): Promise<BookingRequest> {
+  const token = privateBookingToken();
   const validated = BookingRequestSchema.parse(booking);
   await put(bookingPath(validated.id), JSON.stringify(validated), {
     access: 'private',
     addRandomSuffix: false,
-    contentType: 'application/json'
+    contentType: 'application/json',
+    token
   });
   return validated;
 }
 
 export async function listBookings(): Promise<BookingRequest[]> {
-  const result = await list({ prefix: BOOKING_PREFIX, limit: 1000 });
+  const token = privateBookingToken();
+  const result = await list({ prefix: BOOKING_PREFIX, limit: 1000, token });
   const bookings = await Promise.all(result.blobs.map(async (blob) => {
-    const raw = await readJson<unknown>(blob.url, 'private');
+    const raw = await readJson<unknown>(blob.url, 'private', token);
     return BookingRequestSchema.parse(raw);
   }));
   return bookings.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 export async function updateBooking(id: string, patch: Partial<Pick<BookingRequest, 'status'>>): Promise<BookingRequest> {
+  const token = privateBookingToken();
   const path = bookingPath(id);
-  const current = await readJson<unknown>(path, 'private');
+  const current = await readJson<unknown>(path, 'private', token);
   if (!current) throw new Error('Booking not found');
   const existing = BookingRequestSchema.parse(current);
   const next = BookingRequestSchema.parse({ ...existing, ...patch, updatedAt: new Date().toISOString() });
-  await put(path, JSON.stringify(next), { access: 'private', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json' });
+  await put(path, JSON.stringify(next), { access: 'private', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json', token });
   return next;
 }
 
 export async function deleteBooking(id: string): Promise<void> {
-  await del(bookingPath(id));
+  const token = privateBookingToken();
+  await del(bookingPath(id), { token });
 }
 
 export async function listMedia(prefix = MEDIA_PREFIX) {

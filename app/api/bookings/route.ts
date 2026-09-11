@@ -1,15 +1,23 @@
 import { NextResponse } from 'next/server';
-import { createBooking, loadSiteData } from '@/lib/blob-store';
+import { createBooking, hasPrivateBookingStorageConfig, loadSiteData } from '@/lib/blob-store';
 import { BookingInputSchema, BookingRequestSchema } from '@/lib/domain';
 import { buildWhatsAppUrl } from '@/lib/whatsapp';
 
 export const dynamic = 'force-dynamic';
+
+function privateStorageUnavailable() {
+  return NextResponse.json(
+    { error: 'Private booking storage is not configured. Please contact RAFAY before submitting this request.' },
+    { status: 503 }
+  );
+}
 
 export async function POST(request: Request) {
   let raw: unknown;
   try { raw = await request.json(); } catch { return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 }); }
   const parsed = BookingInputSchema.safeParse(raw);
   if (!parsed.success) return NextResponse.json({ error: 'Please complete all required booking details.', issues: parsed.error.flatten() }, { status: 400 });
+  if (!hasPrivateBookingStorageConfig()) return privateStorageUnavailable();
 
   const { data } = await loadSiteData();
   const profile = data.profiles.find((item) => item.id === parsed.data.profileId && item.active && item.adultConfirmed);

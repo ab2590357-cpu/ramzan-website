@@ -11,6 +11,19 @@ type Props = {
   onChange: (url: string) => void;
 };
 
+type UploadPayload = { url?: string; error?: string };
+
+async function readUploadPayload(response: Response): Promise<UploadPayload> {
+  const raw = await response.text();
+  if (!raw.trim()) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === 'object' ? parsed as UploadPayload : {};
+  } catch {
+    return {};
+  }
+}
+
 export function SiteMediaUploader({ secret, label, currentUrl, previewAlt, onChange }: Props) {
   const [state, setState] = useState<'idle' | 'uploading' | 'error'>('idle');
   const [error, setError] = useState('');
@@ -27,10 +40,15 @@ export function SiteMediaUploader({ secret, label, currentUrl, previewAlt, onCha
         method: 'POST',
         body: form
       });
-      const payload = await response.json();
+      const payload = await readUploadPayload(response);
       if (!response.ok) {
         setState('error');
-        setError(payload.error || 'Image upload failed.');
+        setError(payload.error || `Upload failed (${response.status}).`);
+        return;
+      }
+      if (!payload.url) {
+        setState('error');
+        setError('Upload completed without a media URL.');
         return;
       }
       onChange(payload.url);
