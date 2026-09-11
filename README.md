@@ -11,16 +11,18 @@ Premium, mobile-responsive 18+ booking experience for lawful adult event compani
 - Admin-controlled RAFAY logo plus separate desktop and mobile hero images.
 - Portable persistent storage: Railway filesystem volume or Vercel Blob.
 - Booking request management with search, status filters, status updates, customer WhatsApp shortcut and deletion.
-- Automated tests, brand audit and Next.js production build in GitHub Actions.
+- Safe client response parsing so empty/malformed server failures never become browser JSON parser errors.
+- Safe `/api/health` release identity plus a production smoke command.
+- Automated tests, brand audit and Next.js production build in GitHub Actions on pull requests and `main` pushes.
 
 ## Environment
 
 Copy `.env.example` to `.env.local` for local development and configure the corresponding variables in the deployment environment:
 
 - `RAFAY_ADMIN_KEY` — a private random secret at least 24 characters long. The admin route is `/control/<RAFAY_ADMIN_KEY>`. Treat the full URL like a password because there is intentionally no login screen.
-- `RAFAY_DATA_DIR` — optional absolute persistent-volume path. When set, RAFAY stores site configuration, bookings and uploaded media on that filesystem and does not require Vercel Blob. Railway production uses `/data`.
-- Public Blob store — used when `RAFAY_DATA_DIR` is absent for `rafay/config/site-data.json`, logo/hero media and profile images. A Vercel-connected public store can use OIDC (`BLOB_STORE_ID` plus the deployment OIDC token) automatically. `BLOB_READ_WRITE_TOKEN` remains supported for local development or token-based connections.
-- `RAFAY_PRIVATE_BLOB_READ_WRITE_TOKEN` — used when `RAFAY_DATA_DIR` is absent; this is the read/write token from the separate private Blob store for `rafay/bookings/*.json`.
+- `RAFAY_DATA_DIR` — optional absolute persistent-volume path. When set, RAFAY stores site configuration, bookings and uploaded media on that filesystem and does not require Vercel Blob. Railway production can use `/data`.
+- `BLOB_READ_WRITE_TOKEN` — required on Vercel when `RAFAY_DATA_DIR` is absent. This is the read/write token from the connected **Public** Blob store used for `rafay/config/site-data.json`, logo/hero media and profile images. RAFAY passes this credential explicitly to Blob SDK operations instead of relying on implicit runtime bindings.
+- `RAFAY_PRIVATE_BLOB_READ_WRITE_TOKEN` — required on Vercel when `RAFAY_DATA_DIR` is absent; this is the read/write token from the separate **Private** Blob store for `rafay/bookings/*.json`.
 
 Never expose the admin key or storage credentials in client-side environment variables or source code.
 
@@ -32,7 +34,25 @@ npm test
 npm run check:brand
 npm run build
 npm run dev
+npm run smoke:production -- https://your-production-domain.example [expected-commit]
 ```
+
+The smoke command requires successful responses from `/api/health`, `/`, and `/booking`. If an expected commit SHA/prefix is supplied, it also verifies that production is actually serving that release.
+
+## Deployment health
+
+`GET /api/health` returns only safe release metadata:
+
+```json
+{
+  "ok": true,
+  "commit": "deployment-commit-sha",
+  "runtime": "vercel",
+  "time": "2026-09-12T00:00:00.000Z"
+}
+```
+
+It never returns the admin key or storage tokens. Use this endpoint before treating a merged fix as live; a Git merge and a production deployment are separate states.
 
 ## Admin workflow
 
@@ -57,17 +77,18 @@ With `RAFAY_DATA_DIR=/data`, site configuration is stored at `/data/config/site-
 
 ## Vercel storage setup
 
-When `RAFAY_DATA_DIR` is not set, RAFAY uses two Blob stores because Vercel Blob access mode is fixed when a store is created:
+When `RAFAY_DATA_DIR` is not set, RAFAY uses two Blob stores because public media and private booking records have different access requirements:
 
-1. Create/connect a **Public** Blob store to the RAFAY Vercel project for public site data and media. New Vercel connections may use OIDC automatically.
-2. Create a second **Private** Blob store for booking request records. Connect/copy its read-write token into the project as `RAFAY_PRIVATE_BLOB_READ_WRITE_TOKEN` for Production and Preview.
-3. Redeploy after adding or changing storage environment bindings.
+1. Create/connect a **Public** Blob store to the RAFAY Vercel project for public site data and media. Enable/add its read-write token and expose it to the project as the exact server-side variable `BLOB_READ_WRITE_TOKEN` for Production (and Preview if previews need persistence).
+2. Create/connect a separate **Private** Blob store for booking request records. Expose its read-write token as the exact server-side variable `RAFAY_PRIVATE_BLOB_READ_WRITE_TOKEN`.
+3. Redeploy after adding or changing storage environment variables.
+4. Verify `/api/health` is serving the intended commit before retesting the admin.
 
-The public store is required for admin hero/logo/profile uploads and persistent website edits on Vercel. The private store is required for public booking submissions and the admin Bookings manager on Vercel.
+The public store is required for admin hero/logo/profile uploads and persistent website edits on Vercel. The private store is required for public booking submissions and the admin Bookings manager on Vercel. `BLOB_STORE_ID` alone is not considered writable RAFAY configuration.
 
 ## Failure behavior
 
-Public pages fall back to default RAFAY site data if their configured storage backend has a transient read/bootstrap problem instead of crashing the whole site. Admin write/upload actions return explicit errors when storage is unavailable. Booking submissions return a structured service error when no writable booking backend is configured.
+Public pages fall back to default RAFAY site data if their configured storage backend has a transient read/bootstrap problem instead of crashing the whole site. Admin save, uploads, booking management and public booking submission use guarded response parsing, so empty or malformed upstream failures are converted into readable status-aware messages instead of `Unexpected end of JSON input`. Expected storage failures are returned as structured JSON service errors.
 
 ## Launch requirements
 
