@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Eliminate RAFAY's repeated empty-JSON failures, make storage authentication deterministic, and make the deployed production revision verifiable.
+**Goal:** Eliminate RAFAY's repeated empty-JSON failures, make storage authentication reliable across current Vercel OIDC and legacy token connections, and make the deployed production revision verifiable.
 
-**Architecture:** Keep the existing Next.js application and its two storage backends, but centralize client JSON parsing, make Vercel public Blob token usage explicit, wrap persistence errors in structured API responses, and expose a safe release health endpoint. Add CI and smoke coverage so a merged-but-not-deployed release cannot be mistaken for a live fix.
+**Architecture:** Keep the existing Next.js application and its two storage backends, but centralize client JSON parsing, support both Vercel public Blob OIDC and static-token authentication, wrap persistence errors in structured API responses, and expose a safe release health endpoint. Add CI and smoke coverage so a merged-but-not-deployed release cannot be mistaken for a live fix.
 
 **Tech Stack:** Next.js App Router, React, TypeScript, Zod, `@vercel/blob`, Vitest, React Testing Library, GitHub Actions.
 
@@ -44,7 +44,7 @@
 - [ ] **Step 4: Replace every direct browser `response.json()`** in admin save, site/profile media upload, booking manager load/update, and public booking submit with the shared helper.
 - [ ] **Step 5: Run all focused client tests** and verify no fetch flow can throw a JSON parser exception.
 
-### Task 2: Explicit public Blob authentication and storage diagnostics
+### Task 2: Public Blob OIDC/static-token compatibility and storage diagnostics
 
 **Files:**
 - Modify: `lib/blob-store.ts`
@@ -54,15 +54,15 @@
 - Modify: `README.md`
 
 **Interfaces:**
-- Produces: `hasBlobStorageConfig()` that is true for filesystem storage or a non-empty `BLOB_READ_WRITE_TOKEN`.
-- Produces internal public-token access used by all public Blob operations.
+- Produces: `hasBlobStorageConfig()` that is true for filesystem storage, a connected `BLOB_STORE_ID`, or a non-empty `BLOB_READ_WRITE_TOKEN`.
+- Produces public Blob calls that omit a token for automatic Vercel OIDC or pass the static token explicitly when one is configured.
 
-- [ ] **Step 1: Add failing tests** proving `BLOB_STORE_ID` alone is not treated as writable public storage and proving public `head/get/put/list/del` calls receive `BLOB_READ_WRITE_TOKEN` explicitly.
-- [ ] **Step 2: Run focused Blob tests** and verify failure against the current implicit-token implementation.
-- [ ] **Step 3: Implement explicit public token use** for site-data and media operations while keeping `RAFAY_DATA_DIR` first and the private booking token unchanged.
-- [ ] **Step 4: Add sanitized storage logs** on site-data read/bootstrap failures without logging secrets.
-- [ ] **Step 5: Update env/docs** to require the project public store's `BLOB_READ_WRITE_TOKEN` and remove the claim that `BLOB_STORE_ID` alone is sufficient.
-- [ ] **Step 6: Run Blob/storage tests** and verify filesystem, public Blob, and private booking paths all remain green.
+- [ ] **Step 1: Add failing tests** proving a connected `BLOB_STORE_ID` works through automatic OIDC and a static `BLOB_READ_WRITE_TOKEN` is still supported.
+- [ ] **Step 2: Run focused Blob tests** and verify failure against any implementation that disables either authentication mode.
+- [ ] **Step 3: Implement dual-mode public Blob authentication** while keeping `RAFAY_DATA_DIR` first and the private booking token unchanged.
+- [ ] **Step 4: Add sanitized storage logs** on site-data read/bootstrap/write failures without logging secrets.
+- [ ] **Step 5: Update env/docs** to document Vercel OIDC as the default current connection mode and the static token as a legacy/local fallback.
+- [ ] **Step 6: Run Blob/storage tests** and verify filesystem, OIDC public Blob, static-token public Blob, and private booking paths all remain green.
 
 ### Task 3: Structured API failure envelopes
 
