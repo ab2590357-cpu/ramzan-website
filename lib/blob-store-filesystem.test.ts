@@ -26,10 +26,13 @@ import {
   SiteDataConflictError,
   createBooking,
   deleteBooking,
+  deleteMedia,
   hasBlobStorageConfig,
   hasPrivateBookingStorageConfig,
   listBookings,
   loadSiteData,
+  readMedia,
+  saveMedia,
   saveSiteData,
   updateBooking
 } from './blob-store';
@@ -133,5 +136,27 @@ describe('RAFAY filesystem bookings', () => {
     expect(putMock).not.toHaveBeenCalled();
     expect(listMock).not.toHaveBeenCalled();
     expect(delMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('RAFAY filesystem media', () => {
+  it('saves, reads and deletes site media without Vercel Blob', async () => {
+    const saved = await saveMedia('site', 'hero.webp', new Blob([new Uint8Array([1, 2, 3])], { type: 'image/webp' }), 'image/webp');
+    expect(saved.url).toBe('/media/site/hero.webp');
+    expect(saved.pathname).toBe('rafay/media/site/hero.webp');
+    expect(Array.from(await readFile(join(root, 'media', 'site', 'hero.webp')))).toEqual([1, 2, 3]);
+
+    const loaded = await readMedia('site/hero.webp');
+    expect(Array.from(loaded?.body || [])).toEqual([1, 2, 3]);
+    expect(loaded?.contentType).toBe('image/webp');
+
+    await deleteMedia(saved.pathname);
+    expect(await readMedia('site/hero.webp')).toBeNull();
+    expect(putMock).not.toHaveBeenCalled();
+    expect(delMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects filesystem media traversal attempts', async () => {
+    await expect(readMedia('../config/site-data.json')).rejects.toThrow('Invalid RAFAY media path');
   });
 });
