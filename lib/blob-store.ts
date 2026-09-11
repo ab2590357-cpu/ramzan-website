@@ -239,8 +239,7 @@ export async function loadSiteData(): Promise<{ data: SiteData; etag: string }> 
         addRandomSuffix: false,
         contentType: 'application/json'
       });
-      const metadata = await head(blob.url);
-      return { data: seeded, etag: metadata.etag };
+      return { data: seeded, etag: blob.etag };
     } catch {
       return defaultSiteDataAfterReadError();
     }
@@ -256,15 +255,14 @@ export async function saveSiteData(next: SiteData, expectedEtag: string): Promis
   }
   const validated = SiteDataSchema.parse({ ...next, brandName: 'RAFAY', updatedAt: new Date().toISOString(), version: next.version + 1 });
   try {
-    await put(CONFIG_PATH, JSON.stringify(validated), {
+    const blob = await put(CONFIG_PATH, JSON.stringify(validated), {
       access: 'public',
       addRandomSuffix: false,
       allowOverwrite: true,
       ifMatch: expectedEtag,
       contentType: 'application/json'
     });
-    const metadata = await head(CONFIG_PATH);
-    return { data: validated, etag: metadata.etag };
+    return { data: validated, etag: blob.etag };
   } catch (error) {
     if (error instanceof BlobPreconditionFailedError) throw new SiteDataConflictError();
     throw error;
