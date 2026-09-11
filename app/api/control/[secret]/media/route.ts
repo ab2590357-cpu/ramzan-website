@@ -71,7 +71,9 @@ export async function POST(request: Request, context: Context) {
   const filename = `${crypto.randomUUID()}-${originalBase}.${EXTENSIONS[file.type]}`;
 
   try {
-    const media = await saveMedia(scope, filename, file, file.type, scope === 'profile' ? String(profileId) : undefined);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const normalizedFile = new Blob([bytes], { type: file.type });
+    const media = await saveMedia(scope, filename, normalizedFile, file.type, scope === 'profile' ? String(profileId) : undefined);
     return NextResponse.json({ url: media.url, pathname: media.pathname, contentType: file.type, size: file.size }, { status: 201 });
   } catch {
     return storageFailure();
