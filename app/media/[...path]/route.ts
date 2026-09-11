@@ -10,7 +10,9 @@ export async function GET(_request: Request, context: Context) {
     if (!Array.isArray(path) || path.length < 1) return new Response('', { status: 404 });
     const media = await readMedia(path.join('/'));
     if (!media) return new Response('', { status: 404 });
-    const body = media.body.buffer.slice(media.body.byteOffset, media.body.byteOffset + media.body.byteLength);
+
+    const body = new ArrayBuffer(media.body.byteLength);
+    new Uint8Array(body).set(media.body);
     return new Response(body, {
       status: 200,
       headers: {
