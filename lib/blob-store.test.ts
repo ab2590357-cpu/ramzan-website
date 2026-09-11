@@ -119,6 +119,30 @@ describe('RAFAY runtime fallback', () => {
     expect(headMock).toHaveBeenCalledOnce();
   });
 
+  it('treats a Vercel-connected Blob store id as configured when OIDC is runtime-managed', async () => {
+    delete process.env.BLOB_READ_WRITE_TOKEN;
+    process.env.BLOB_STORE_ID = 'store_ci';
+    delete process.env.VERCEL_OIDC_TOKEN;
+    headMock.mockResolvedValue({
+      url: 'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
+      etag: 'etag-store-id'
+    });
+    getMock.mockResolvedValue({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(JSON.stringify(DEFAULT_SITE_DATA)));
+          controller.close();
+        }
+      })
+    });
+
+    const result = await loadSiteData();
+
+    expect(result.data.brandName).toBe('RAFAY');
+    expect(result.etag).toBe('etag-store-id');
+    expect(headMock).toHaveBeenCalledOnce();
+  });
+
   it('keeps legacy persisted site config readable after brand-media fields are introduced', () => {
     const legacy = structuredClone(DEFAULT_SITE_DATA) as unknown as Record<string, unknown>;
     const hero = { ...(legacy.hero as Record<string, unknown>) };
