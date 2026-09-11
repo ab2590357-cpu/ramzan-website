@@ -21,6 +21,7 @@ import { loadSiteData } from './blob-store';
 const originalBlobToken = process.env.BLOB_READ_WRITE_TOKEN;
 const originalBlobStoreId = process.env.BLOB_STORE_ID;
 const originalOidcToken = process.env.VERCEL_OIDC_TOKEN;
+const originalDataDir = process.env.RAFAY_DATA_DIR;
 
 afterEach(() => {
   getMock.mockReset();
@@ -32,13 +33,14 @@ afterEach(() => {
   else process.env.BLOB_STORE_ID = originalBlobStoreId;
   if (originalOidcToken === undefined) delete process.env.VERCEL_OIDC_TOKEN;
   else process.env.VERCEL_OIDC_TOKEN = originalOidcToken;
+  if (originalDataDir === undefined) delete process.env.RAFAY_DATA_DIR;
+  else process.env.RAFAY_DATA_DIR = originalDataDir;
 });
 
 describe('RAFAY Blob read resilience', () => {
   it('keeps site data readable when Blob bootstrap fails after a fresh-store not-found', async () => {
-    delete process.env.BLOB_READ_WRITE_TOKEN;
-    process.env.BLOB_STORE_ID = 'store_ci';
-    delete process.env.VERCEL_OIDC_TOKEN;
+    process.env.BLOB_READ_WRITE_TOKEN = 'public_rw_ci';
+    delete process.env.RAFAY_DATA_DIR;
 
     const notFound = new Error('Blob not found');
     notFound.name = 'BlobNotFoundError';
@@ -52,9 +54,8 @@ describe('RAFAY Blob read resilience', () => {
   });
 
   it('keeps site data readable when Blob authentication or store routing fails', async () => {
-    delete process.env.BLOB_READ_WRITE_TOKEN;
-    process.env.BLOB_STORE_ID = 'store_ci';
-    delete process.env.VERCEL_OIDC_TOKEN;
+    process.env.BLOB_READ_WRITE_TOKEN = 'public_rw_ci';
+    delete process.env.RAFAY_DATA_DIR;
     headMock.mockRejectedValueOnce(new Error('Blob authentication failed'));
 
     const result = await loadSiteData();
