@@ -1,8 +1,9 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { listBookings, updateBooking } from '@/lib/blob-store';
+import { hasPrivateBookingStorageConfig, listBookings, updateBooking } from '@/lib/blob-store';
 import { GET, PATCH } from './[secret]/bookings/route';
 
 vi.mock('@/lib/blob-store', () => ({
+  hasPrivateBookingStorageConfig: vi.fn(() => true),
   listBookings: vi.fn(async () => []),
   updateBooking: vi.fn(),
   deleteBooking: vi.fn()
@@ -13,12 +14,26 @@ afterEach(() => {
   if (originalAdminKey === undefined) delete process.env.RAFAY_ADMIN_KEY;
   else process.env.RAFAY_ADMIN_KEY = originalAdminKey;
   vi.clearAllMocks();
+  vi.mocked(hasPrivateBookingStorageConfig).mockReturnValue(true);
 });
 
 it('hides booking data when the admin secret is invalid', async () => {
   process.env.RAFAY_ADMIN_KEY = 'ci-test-admin-key-at-least-32-characters';
   const response = await GET(new Request('https://example.test/api/control/wrong/bookings'), { params: Promise.resolve({ secret: 'wrong' }) });
   expect(response.status).toBe(404);
+  expect(vi.mocked(listBookings)).not.toHaveBeenCalled();
+});
+
+it('returns a JSON service error when private booking storage is not configured', async () => {
+  const secret = 'ci-test-admin-key-at-least-32-characters';
+  process.env.RAFAY_ADMIN_KEY = secret;
+  vi.mocked(hasPrivateBookingStorageConfig).mockReturnValue(false);
+
+  const response = await GET(new Request('https://example.test/api/control/key/bookings'), { params: Promise.resolve({ secret }) });
+  const payload = await response.json();
+
+  expect(response.status).toBe(503);
+  expect(payload.error).toContain('Private booking storage');
   expect(vi.mocked(listBookings)).not.toHaveBeenCalled();
 });
 
