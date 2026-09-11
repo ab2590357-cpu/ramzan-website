@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import type { Profile } from '@/lib/domain';
+import { readJsonResponse } from '@/lib/http-response';
 import styles from './admin.module.css';
 
 export function attachProfileImage(profile: Profile, url: string): Profile {
@@ -36,6 +37,8 @@ type Props = {
   onProfilesChange: (profiles: Profile[]) => void;
 };
 
+type MediaPayload = { url?: string; error?: string };
+
 export function MediaManager({ secret, profiles, onProfilesChange }: Props) {
   const orderedProfiles = useMemo(() => [...profiles].sort((a, b) => a.displayOrder - b.displayOrder), [profiles]);
   const [profileId, setProfileId] = useState(orderedProfiles[0]?.id || '');
@@ -60,8 +63,9 @@ export function MediaManager({ secret, profiles, onProfilesChange }: Props) {
         form.set('profileId', profile.id);
         form.set('file', file);
         const response = await fetch(`/api/control/${encodeURIComponent(secret)}/media`, { method: 'POST', body: form });
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.error || 'Image upload failed.');
+        const payload = await readJsonResponse<MediaPayload>(response, 'Image upload');
+        if (!response.ok) throw new Error(payload.error || `Image upload failed (${response.status}).`);
+        if (!payload.url) throw new Error(payload.error || 'Image upload completed without a media URL.');
         next = attachProfileImage(next, payload.url);
       }
       replaceProfile(next);
@@ -79,13 +83,17 @@ export function MediaManager({ secret, profiles, onProfilesChange }: Props) {
     const next = removeProfileImage(profile, url);
     replaceProfile(next);
     try {
-      await fetch(`/api/control/${encodeURIComponent(secret)}/media`, {
+      const response = await fetch(`/api/control/${encodeURIComponent(secret)}/media`, {
         method: 'DELETE',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ url })
       });
+      if (!response.ok) {
+        const payload = await readJsonResponse<{ error?: string }>(response, 'Media cleanup');
+        setMessage(payload.error || `Media cleanup failed (${response.status}). The profile change can still be saved.`);
+      }
     } catch {
-      // The profile change can still be saved even if storage cleanup is unavailable.
+      setMessage('Media cleanup failed. The profile change can still be saved.');
     }
   };
 
