@@ -113,6 +113,12 @@ function isBlobNotFound(error: unknown): boolean {
   return status === 404 || name === 'BlobNotFoundError' || constructorName === 'BlobNotFoundError';
 }
 
+function versionedPublicBlobUrl(url: string, etag: string): string {
+  const versioned = new URL(url);
+  versioned.searchParams.set('v', etag);
+  return versioned.toString();
+}
+
 async function atomicWrite(path: string, body: string | Uint8Array): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const tempPath = `${path}.${crypto.randomUUID()}.tmp`;
@@ -320,7 +326,7 @@ export async function loadSiteData(): Promise<{ data: SiteData; etag: string }> 
   for (const auth of candidates) {
     try {
       const metadata = await head(CONFIG_PATH, auth);
-      const raw = await readJson<unknown>(metadata.url, 'public', auth);
+      const raw = await readJson<unknown>(versionedPublicBlobUrl(metadata.url, metadata.etag), 'public', auth);
       return { data: SiteDataSchema.parse(raw), etag: metadata.etag };
     } catch (error) {
       lastError = error;
