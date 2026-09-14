@@ -147,12 +147,34 @@ async function diagnosePublicBlob() {
   return { tokenPresent: Boolean(token), oidcEnvPresent: Boolean(oidcToken), storeEnvKeys, attempts };
 }
 
+async function saveRoundtripProbe() {
+  const before = await loadSiteData();
+  if (before.etag === 'blob-read-error' || before.etag === 'blob-not-configured') {
+    return { ok: false, stage: 'read', etag: before.etag };
+  }
+  const saved = await saveSiteData(before.data, before.etag);
+  const reread = await loadSiteData();
+  return {
+    ok: reread.etag === saved.etag && reread.data.version === saved.data.version,
+    before: { etag: before.etag, version: before.data.version },
+    saved: { etag: saved.etag, version: saved.data.version },
+    reread: { etag: reread.etag, version: reread.data.version }
+  };
+}
+
 export async function GET(request: Request, context: Context) {
   const { secret } = await context.params;
   if (!isValidAdminSecret(secret)) return hiddenNotFound();
   const url = new URL(request.url);
   if (url.searchParams.get('diagnose') === '1') {
     return NextResponse.json(await diagnosePublicBlob(), { headers: { 'Cache-Control': 'no-store' } });
+  }
+  if (url.searchParams.get('saveprobe') === '1') {
+    try {
+      return NextResponse.json(await saveRoundtripProbe(), { headers: { 'Cache-Control': 'no-store' } });
+    } catch (error) {
+      return NextResponse.json({ ok: false, stage: 'save', error: safeError(error) }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
+    }
   }
   return NextResponse.json(await loadSiteData(), { headers: { 'Cache-Control': 'no-store' } });
 }
