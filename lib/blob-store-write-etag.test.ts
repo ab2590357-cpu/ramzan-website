@@ -71,7 +71,7 @@ describe('RAFAY Blob write ETag handling', () => {
     expect(headMock).not.toHaveBeenCalled();
   });
 
-  it('bypasses the Blob CDN cache when reading persisted site JSON', async () => {
+  it('cache-busts public Blob config reads with the current ETag', async () => {
     process.env.BLOB_READ_WRITE_TOKEN = 'public_rw_ci';
     delete process.env.RAFAY_DATA_DIR;
     headMock.mockResolvedValue({
@@ -90,8 +90,8 @@ describe('RAFAY Blob write ETag handling', () => {
     await loadSiteData();
 
     expect(getMock).toHaveBeenCalledWith(
-      'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
-      expect.objectContaining({ access: 'public', token: 'public_rw_ci', useCache: false })
+      'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json?v=etag-current',
+      expect.objectContaining({ access: 'public', token: 'public_rw_ci' })
     );
   });
 });
