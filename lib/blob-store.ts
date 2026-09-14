@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
-import { BlobPreconditionFailedError, del, get, head, list, put } from '@vercel/blob';
+import { BlobNotFoundError, BlobPreconditionFailedError, del, get, head, list, put } from '@vercel/blob';
 import { BookingRequestSchema, SiteDataSchema, type BookingRequest, type SiteData } from './domain';
 import { DEFAULT_SITE_DATA } from './defaults';
 import { safeFileName } from './validators';
@@ -107,7 +107,7 @@ function isMissingFile(error: unknown): boolean {
 function isBlobNotFound(error: unknown): boolean {
   const status = typeof error === 'object' && error && 'status' in error ? Number((error as { status?: unknown }).status) : undefined;
   const name = typeof error === 'object' && error && 'name' in error ? String((error as { name?: unknown }).name) : undefined;
-  return status === 404 || name === 'BlobNotFoundError';
+  return error instanceof BlobNotFoundError || status === 404 || name === 'BlobNotFoundError';
 }
 
 async function atomicWrite(path: string, body: string | Uint8Array): Promise<void> {
