@@ -4,7 +4,7 @@ import { DEFAULT_SITE_DATA } from './defaults';
 const { getMock, headMock, listMock, putMock } = vi.hoisted(() => ({
   getMock: vi.fn(),
   headMock: vi.fn(),
-  listMock: vi.fn(async () => ({ blobs: [] })),
+  listMock: vi.fn(async () => ({ blobs: [] as Array<Record<string, unknown>> })),
   putMock: vi.fn()
 }));
 
