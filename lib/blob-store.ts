@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
-import { BlobPreconditionFailedError, del, get, head, list, put } from '@vercel/blob';
+import { del, get, head, list, put } from '@vercel/blob';
 import { BookingRequestSchema, SiteDataSchema, type BookingRequest, type SiteData } from './domain';
 import { DEFAULT_SITE_DATA } from './defaults';
 import { safeFileName } from './validators';
 
 const CONFIG_PATH = 'rafay/config/site-data.json';
+const CONFIG_VERSION_PREFIX = 'rafay/config/versions/';
 const BOOKING_PREFIX = 'rafay/bookings/';
 const MEDIA_PREFIX = 'rafay/media/';
 const UNCONFIGURED_ETAG = 'blob-not-configured';
@@ -17,6 +18,8 @@ type BlobAuthOptions = {
   oidcToken?: string;
   storeId?: string;
 };
+
+type PublicBlob = Awaited<ReturnType<typeof list>>['blobs'][number];
 
 export class SiteDataConflictError extends Error {
   constructor() {
@@ -113,10 +116,9 @@ function isBlobNotFound(error: unknown): boolean {
   return status === 404 || name === 'BlobNotFoundError' || constructorName === 'BlobNotFoundError';
 }
 
-function versionedPublicBlobUrl(url: string, etag: string): string {
-  const versioned = new URL(url);
-  versioned.searchParams.set('v', etag);
-  return versioned.toString();
+function configVersionPath(now = new Date(), id = crypto.randomUUID()): string {
+  const stamp = now.toISOString().replace(/[:.]/g, '-');
+  return `${CONFIG_VERSION_PREFIX}${stamp}-${id}.json`;
 }
 
 async function atomicWrite(path: string, body: string | Uint8Array): Promise<void> {
@@ -227,6 +229,10 @@ export function configPath(): string {
   return CONFIG_PATH;
 }
 
+export function configVersionPrefix(): string {
+  return CONFIG_VERSION_PREFIX;
+}
+
 export function bookingPath(id: string): string {
   return `${BOOKING_PREFIX}${safeFileName(id)}.json`;
 }
@@ -302,6 +308,76 @@ async function readJson<T>(
   return JSON.parse(text) as T;
 }
 
+async function listConfigVersions(auth: BlobAuthOptions): Promise<PublicBlob[]> {
+  const blobs: PublicBlob[] = [];
+  let cursor: string | undefined;
+
+  do {
+    const page = await list({
+      prefix: CONFIG_VERSION_PREFIX,
+      limit: 1000,
+      ...(cursor ? { cursor } : {}),
+      ...auth
+    });
+    blobs.push(...page.blobs);
+    cursor = page.cursor || undefined;
+  } while (cursor);
+
+  return blobs;
+}
+
+function newestFirst(blobs: PublicBlob[]): PublicBlob[] {
+  return [...blobs].sort((a, b) => {
+    const byTime = new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime();
+    if (byTime !== 0) return byTime;
+    return b.pathname.localeCompare(a.pathname);
+  });
+}
+
+async function loadNewestVersionedSiteData(
+  auth: BlobAuthOptions
+): Promise<{ data: SiteData; etag: string } | null> {
+  const versions = newestFirst(await listConfigVersions(auth));
+  if (versions.length === 0) return null;
+
+  let lastError: unknown;
+  for (const blob of versions) {
+    try {
+      const raw = await readJson<unknown>(blob.url, 'public', auth);
+      return { data: SiteDataSchema.parse(raw), etag: blob.etag };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('No valid RAFAY config version could be read.');
+}
+
+async function loadPublicSiteDataWithAuth(
+  auth: BlobAuthOptions,
+  seedWhenMissing: boolean
+): Promise<{ data: SiteData; etag: string }> {
+  const versioned = await loadNewestVersionedSiteData(auth);
+  if (versioned) return versioned;
+
+  try {
+    const legacy = await head(CONFIG_PATH, auth);
+    const raw = await readJson<unknown>(legacy.url, 'public', auth);
+    return { data: SiteDataSchema.parse(raw), etag: legacy.etag };
+  } catch (error) {
+    if (!isBlobNotFound(error) || !seedWhenMissing) throw error;
+  }
+
+  const seeded = SiteDataSchema.parse({ ...DEFAULT_SITE_DATA, updatedAt: new Date().toISOString() });
+  const blob = await put(configVersionPath(), JSON.stringify(seeded), {
+    access: 'public',
+    addRandomSuffix: false,
+    contentType: 'application/json',
+    ...auth
+  });
+  return { data: seeded, etag: blob.etag };
+}
+
 function defaultSiteDataAfterReadError(): { data: SiteData; etag: string } {
   return { data: DEFAULT_SITE_DATA, etag: READ_ERROR_ETAG };
 }
@@ -325,25 +401,9 @@ export async function loadSiteData(): Promise<{ data: SiteData; etag: string }> 
   let lastError: unknown;
   for (const auth of candidates) {
     try {
-      const metadata = await head(CONFIG_PATH, auth);
-      const raw = await readJson<unknown>(versionedPublicBlobUrl(metadata.url, metadata.etag), 'public', auth);
-      return { data: SiteDataSchema.parse(raw), etag: metadata.etag };
+      return await loadPublicSiteDataWithAuth(auth, true);
     } catch (error) {
       lastError = error;
-      if (!isBlobNotFound(error)) continue;
-
-      try {
-        const seeded = SiteDataSchema.parse({ ...DEFAULT_SITE_DATA, updatedAt: new Date().toISOString() });
-        const blob = await put(CONFIG_PATH, JSON.stringify(seeded), {
-          access: 'public',
-          addRandomSuffix: false,
-          contentType: 'application/json',
-          ...auth
-        });
-        return { data: seeded, etag: blob.etag };
-      } catch (seedError) {
-        lastError = seedError;
-      }
     }
   }
 
@@ -362,29 +422,39 @@ export async function saveSiteData(next: SiteData, expectedEtag: string): Promis
     throw new Error('Blob storage is temporarily unavailable. Reload after the storage connection is healthy.');
   }
 
-  const validated = SiteDataSchema.parse({
-    ...next,
-    brandName: 'RAFAY',
-    updatedAt: new Date().toISOString(),
-    version: next.version + 1
-  });
   const candidates = publicBlobAuthCandidates();
   let lastError: unknown;
   let sawConflict = false;
 
   for (const auth of candidates) {
     try {
-      const blob = await put(CONFIG_PATH, JSON.stringify(validated), {
+      const current = await loadPublicSiteDataWithAuth(auth, false);
+      if (current.etag !== expectedEtag) {
+        sawConflict = true;
+        continue;
+      }
+
+      const validated = SiteDataSchema.parse({
+        ...next,
+        brandName: 'RAFAY',
+        updatedAt: new Date().toISOString(),
+        version: current.data.version + 1
+      });
+      const blob = await put(configVersionPath(), JSON.stringify(validated), {
         access: 'public',
         addRandomSuffix: false,
-        allowOverwrite: true,
-        ifMatch: expectedEtag,
         contentType: 'application/json',
         ...auth
       });
-      return { data: validated, etag: blob.etag };
+
+      const raw = await readJson<unknown>(blob.url, 'public', auth);
+      const persisted = SiteDataSchema.parse(raw);
+      if (persisted.version !== validated.version || persisted.updatedAt !== validated.updatedAt) {
+        throw new Error('New RAFAY config version failed read-back verification.');
+      }
+
+      return { data: persisted, etag: blob.etag };
     } catch (error) {
-      if (error instanceof BlobPreconditionFailedError) sawConflict = true;
       lastError = error;
     }
   }
