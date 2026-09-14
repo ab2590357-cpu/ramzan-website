@@ -81,7 +81,7 @@ describe('RAFAY public Blob authentication', () => {
       oidcToken: 'runtime_oidc_ci'
     });
     expect(getMock).toHaveBeenCalledWith(
-      'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
+      'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json?v=etag-oidc-ci',
       { access: 'public', useCache: false, storeId: 'store_oidc_ci', oidcToken: 'runtime_oidc_ci' }
     );
   });
@@ -107,7 +107,7 @@ describe('RAFAY public Blob authentication', () => {
 
     expect(headMock).toHaveBeenCalledWith('rafay/config/site-data.json', { token: 'public_rw_ci' });
     expect(getMock).toHaveBeenCalledWith(
-      'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
+      'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json?v=etag-ci',
       { access: 'public', useCache: false, token: 'public_rw_ci' }
     );
   });
