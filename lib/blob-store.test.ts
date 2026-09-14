@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SITE_DATA } from './defaults';
 import { SiteDataSchema, type BookingRequest } from './domain';
 
-const { delMock, getMock, headMock, listMock, putMock } = vi.hoisted(() => ({
+const { BlobNotFoundErrorMock, delMock, getMock, headMock, listMock, putMock } = vi.hoisted(() => ({
+  BlobNotFoundErrorMock: class BlobNotFoundError extends Error {},
   delMock: vi.fn(),
   getMock: vi.fn(),
   headMock: vi.fn(),
@@ -11,6 +12,7 @@ const { delMock, getMock, headMock, listMock, putMock } = vi.hoisted(() => ({
 }));
 
 vi.mock('@vercel/blob', () => ({
+  BlobNotFoundError: BlobNotFoundErrorMock,
   BlobPreconditionFailedError: class BlobPreconditionFailedError extends Error {},
   del: delMock,
   get: getMock,
@@ -132,6 +134,32 @@ describe('RAFAY runtime fallback', () => {
       'rafay/config/site-data.json',
       expect.any(String),
       expect.objectContaining({ access: 'public', addRandomSuffix: false, contentType: 'application/json', token: 'public_rw_ci' })
+    );
+  });
+
+  it('seeds default site data when the Blob SDK not-found error keeps the default Error name', async () => {
+    delete process.env.RAFAY_DATA_DIR;
+    delete process.env.BLOB_READ_WRITE_TOKEN;
+    delete process.env.RAFAY_PUBLIC_MEDIA_BLOB_STORE_ID;
+    process.env.BLOB_STORE_ID = 'store_ci';
+    process.env.VERCEL_OIDC_TOKEN = 'oidc_ci';
+
+    const notFound = new BlobNotFoundErrorMock('The requested blob does not exist');
+    expect(notFound.name).toBe('Error');
+    headMock.mockRejectedValueOnce(notFound);
+    putMock.mockResolvedValue({
+      url: 'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
+      etag: 'etag-sdk-seeded'
+    });
+
+    const result = await loadSiteData();
+
+    expect(result.data.brandName).toBe('RAFAY');
+    expect(result.etag).toBe('etag-sdk-seeded');
+    expect(putMock).toHaveBeenCalledWith(
+      'rafay/config/site-data.json',
+      expect.any(String),
+      expect.objectContaining({ access: 'public', storeId: 'store_ci', oidcToken: 'oidc_ci' })
     );
   });
 
