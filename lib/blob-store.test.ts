@@ -103,12 +103,18 @@ describe('RAFAY runtime fallback', () => {
 
     expect(result.data.brandName).toBe('RAFAY');
     expect(result.etag).toBe('etag-oidc');
+    expect(listMock).toHaveBeenCalledWith({
+      prefix: 'rafay/config/versions/',
+      limit: 1000,
+      storeId: 'store_ci',
+      oidcToken: 'oidc_ci'
+    });
     expect(headMock).toHaveBeenCalledWith('rafay/config/site-data.json', {
       storeId: 'store_ci',
       oidcToken: 'oidc_ci'
     });
     expect(getMock).toHaveBeenCalledWith(
-      'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json?v=etag-oidc',
+      'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
       { access: 'public', useCache: false, storeId: 'store_ci', oidcToken: 'oidc_ci' }
     );
   });
@@ -121,7 +127,7 @@ describe('RAFAY runtime fallback', () => {
     notFound.name = 'BlobNotFoundError';
     headMock.mockRejectedValueOnce(notFound);
     putMock.mockResolvedValue({
-      url: 'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
+      url: 'https://assets.public.blob.vercel-storage.com/rafay/config/versions/seed.json',
       etag: 'etag-seeded'
     });
 
@@ -131,7 +137,7 @@ describe('RAFAY runtime fallback', () => {
     expect(result.etag).toBe('etag-seeded');
     expect(headMock).toHaveBeenCalledOnce();
     expect(putMock).toHaveBeenCalledWith(
-      'rafay/config/site-data.json',
+      expect.stringMatching(/^rafay\/config\/versions\/.+\.json$/),
       expect.any(String),
       expect.objectContaining({ access: 'public', addRandomSuffix: false, contentType: 'application/json', token: 'public_rw_ci' })
     );
@@ -148,7 +154,7 @@ describe('RAFAY runtime fallback', () => {
     expect(notFound.name).toBe('Error');
     headMock.mockRejectedValueOnce(notFound);
     putMock.mockResolvedValue({
-      url: 'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
+      url: 'https://assets.public.blob.vercel-storage.com/rafay/config/versions/seed.json',
       etag: 'etag-sdk-seeded'
     });
 
@@ -157,7 +163,7 @@ describe('RAFAY runtime fallback', () => {
     expect(result.data.brandName).toBe('RAFAY');
     expect(result.etag).toBe('etag-sdk-seeded');
     expect(putMock).toHaveBeenCalledWith(
-      'rafay/config/site-data.json',
+      expect.stringMatching(/^rafay\/config\/versions\/.+\.json$/),
       expect.any(String),
       expect.objectContaining({ access: 'public', storeId: 'store_ci', oidcToken: 'oidc_ci' })
     );
