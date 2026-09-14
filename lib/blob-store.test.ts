@@ -109,7 +109,7 @@ describe('RAFAY runtime fallback', () => {
     });
     expect(getMock).toHaveBeenCalledWith(
       'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
-      { access: 'public', storeId: 'store_ci', oidcToken: 'oidc_ci' }
+      { access: 'public', useCache: false, storeId: 'store_ci', oidcToken: 'oidc_ci' }
     );
   });
 
