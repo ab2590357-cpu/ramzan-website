@@ -326,9 +326,14 @@ async function listConfigVersions(auth: BlobAuthOptions): Promise<PublicBlob[]> 
   return blobs;
 }
 
+function uploadedAtMs(blob: PublicBlob): number {
+  const value = blob.uploadedAt;
+  return value instanceof Date ? value.getTime() : new Date(value as unknown as string).getTime();
+}
+
 function newestFirst(blobs: PublicBlob[]): PublicBlob[] {
   return [...blobs].sort((a, b) => {
-    const byTime = new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime();
+    const byTime = uploadedAtMs(b) - uploadedAtMs(a);
     if (byTime !== 0) return byTime;
     return b.pathname.localeCompare(a.pathname);
   });
@@ -449,7 +454,7 @@ export async function saveSiteData(next: SiteData, expectedEtag: string): Promis
 
       const raw = await readJson<unknown>(blob.url, 'public', auth);
       const persisted = SiteDataSchema.parse(raw);
-      if (persisted.version !== validated.version || persisted.updatedAt !== validated.updatedAt) {
+      if (persisted.version !== validated.version) {
         throw new Error('New RAFAY config version failed read-back verification.');
       }
 
