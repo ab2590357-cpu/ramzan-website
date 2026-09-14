@@ -72,13 +72,19 @@ describe('RAFAY public Blob store selection', () => {
     const result = await loadSiteData();
 
     expect(result.etag).toBe('etag-public');
+    expect(listMock).toHaveBeenCalledWith({
+      prefix: 'rafay/config/versions/',
+      limit: 1000,
+      storeId: 'store_public_media',
+      oidcToken: 'oidc_ci'
+    });
     expect(headMock).toHaveBeenCalledWith(
       'rafay/config/site-data.json',
       expect.objectContaining({ storeId: 'store_public_media', oidcToken: 'oidc_ci' })
     );
     expect(getMock).toHaveBeenCalledWith(
       'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
-      expect.objectContaining({ access: 'public', storeId: 'store_public_media', oidcToken: 'oidc_ci' })
+      expect.objectContaining({ access: 'public', useCache: false, storeId: 'store_public_media', oidcToken: 'oidc_ci' })
     );
   });
 });
