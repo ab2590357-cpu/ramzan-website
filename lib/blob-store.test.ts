@@ -108,7 +108,7 @@ describe('RAFAY runtime fallback', () => {
       oidcToken: 'oidc_ci'
     });
     expect(getMock).toHaveBeenCalledWith(
-      'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
+      'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json?v=etag-oidc',
       { access: 'public', useCache: false, storeId: 'store_ci', oidcToken: 'oidc_ci' }
     );
   });
