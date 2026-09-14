@@ -5,7 +5,7 @@ const { delMock, getMock, headMock, listMock, putMock } = vi.hoisted(() => ({
   delMock: vi.fn(),
   getMock: vi.fn(),
   headMock: vi.fn(),
-  listMock: vi.fn(async () => ({ blobs: [] })),
+  listMock: vi.fn(async () => ({ blobs: [] as Array<Record<string, unknown>> })),
   putMock: vi.fn()
 }));
 
