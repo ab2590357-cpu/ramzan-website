@@ -154,11 +154,14 @@ describe('RAFAY immutable config versions', () => {
   it('saves by creating a new immutable object without overwrite options', async () => {
     publicTokenEnv();
     const current = { ...DEFAULT_SITE_DATA, version: 4, updatedAt: '2026-09-14T02:00:00.000Z' };
+    const persisted = { ...current, version: 5, updatedAt: '2026-09-14T03:00:00.000Z' };
     listMock.mockResolvedValueOnce({
       blobs: [blob('rafay/config/versions/current.json', 'etag-current', '2026-09-14T02:00:00.000Z')],
       cursor: undefined
     });
-    getMock.mockResolvedValueOnce(jsonResult(current));
+    getMock
+      .mockResolvedValueOnce(jsonResult(current))
+      .mockResolvedValueOnce(jsonResult(persisted));
     putMock.mockResolvedValueOnce({
       pathname: 'rafay/config/versions/next.json',
       url: 'https://assets.public.blob.vercel-storage.com/rafay/config/versions/next.json',
@@ -211,6 +214,7 @@ describe('RAFAY immutable config versions', () => {
       });
     getMock
       .mockResolvedValueOnce(jsonResult(current))
+      .mockResolvedValueOnce(jsonResult(next))
       .mockResolvedValueOnce(jsonResult(next));
     putMock.mockResolvedValueOnce({
       pathname: 'rafay/config/versions/next.json',
