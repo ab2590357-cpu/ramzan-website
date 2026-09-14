@@ -8,6 +8,7 @@ const { getMock, headMock, putMock } = vi.hoisted(() => ({
 }));
 
 vi.mock('@vercel/blob', () => ({
+  BlobNotFoundError: class BlobNotFoundError extends Error {},
   BlobPreconditionFailedError: class BlobPreconditionFailedError extends Error {},
   del: vi.fn(),
   get: getMock,
@@ -68,5 +69,29 @@ describe('RAFAY Blob write ETag handling', () => {
 
     expect(result.etag).toBe('etag-updated');
     expect(headMock).not.toHaveBeenCalled();
+  });
+
+  it('bypasses the Blob CDN cache when reading persisted site JSON', async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = 'public_rw_ci';
+    delete process.env.RAFAY_DATA_DIR;
+    headMock.mockResolvedValue({
+      url: 'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
+      etag: 'etag-current'
+    });
+    getMock.mockResolvedValue({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(JSON.stringify(DEFAULT_SITE_DATA)));
+          controller.close();
+        }
+      })
+    });
+
+    await loadSiteData();
+
+    expect(getMock).toHaveBeenCalledWith(
+      'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
+      expect.objectContaining({ access: 'public', token: 'public_rw_ci', useCache: false })
+    );
   });
 });
