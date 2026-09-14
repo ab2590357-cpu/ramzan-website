@@ -31,6 +31,17 @@ function restore(name: string, value: string | undefined) {
   else process.env[name] = value;
 }
 
+function jsonResult(data: unknown) {
+  return {
+    stream: new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(JSON.stringify(data)));
+        controller.close();
+      }
+    })
+  };
+}
+
 afterEach(() => {
   delMock.mockReset();
   getMock.mockReset();
@@ -65,23 +76,22 @@ describe('RAFAY public Blob authentication', () => {
       url: 'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
       etag: 'etag-oidc-ci'
     });
-    getMock.mockResolvedValue({
-      stream: new ReadableStream({
-        start(controller) {
-          controller.enqueue(new TextEncoder().encode(JSON.stringify(DEFAULT_SITE_DATA)));
-          controller.close();
-        }
-      })
-    });
+    getMock.mockResolvedValue(jsonResult(DEFAULT_SITE_DATA));
 
     await loadSiteData();
 
+    expect(listMock).toHaveBeenCalledWith({
+      prefix: 'rafay/config/versions/',
+      limit: 1000,
+      storeId: 'store_oidc_ci',
+      oidcToken: 'runtime_oidc_ci'
+    });
     expect(headMock).toHaveBeenCalledWith('rafay/config/site-data.json', {
       storeId: 'store_oidc_ci',
       oidcToken: 'runtime_oidc_ci'
     });
     expect(getMock).toHaveBeenCalledWith(
-      'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json?v=etag-oidc-ci',
+      'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
       { access: 'public', useCache: false, storeId: 'store_oidc_ci', oidcToken: 'runtime_oidc_ci' }
     );
   });
@@ -94,20 +104,18 @@ describe('RAFAY public Blob authentication', () => {
       url: 'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
       etag: 'etag-ci'
     });
-    getMock.mockResolvedValue({
-      stream: new ReadableStream({
-        start(controller) {
-          controller.enqueue(new TextEncoder().encode(JSON.stringify(DEFAULT_SITE_DATA)));
-          controller.close();
-        }
-      })
-    });
+    getMock.mockResolvedValue(jsonResult(DEFAULT_SITE_DATA));
 
     await loadSiteData();
 
+    expect(listMock).toHaveBeenCalledWith({
+      prefix: 'rafay/config/versions/',
+      limit: 1000,
+      token: 'public_rw_ci'
+    });
     expect(headMock).toHaveBeenCalledWith('rafay/config/site-data.json', { token: 'public_rw_ci' });
     expect(getMock).toHaveBeenCalledWith(
-      'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json?v=etag-ci',
+      'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json',
       { access: 'public', useCache: false, token: 'public_rw_ci' }
     );
   });
@@ -115,19 +123,40 @@ describe('RAFAY public Blob authentication', () => {
   it('passes a static token explicitly when saving site data and media', async () => {
     delete process.env.RAFAY_DATA_DIR;
     process.env.BLOB_READ_WRITE_TOKEN = 'public_rw_ci';
+    const next = { ...DEFAULT_SITE_DATA, version: DEFAULT_SITE_DATA.version + 1, updatedAt: '2026-09-14T04:00:00.000Z' };
+    listMock.mockResolvedValueOnce({
+      blobs: [{
+        pathname: 'rafay/config/versions/current.json',
+        url: 'https://assets.public.blob.vercel-storage.com/rafay/config/versions/current.json',
+        etag: 'etag-current',
+        uploadedAt: new Date('2026-09-14T03:00:00.000Z')
+      }]
+    });
+    getMock
+      .mockResolvedValueOnce(jsonResult(DEFAULT_SITE_DATA))
+      .mockResolvedValueOnce(jsonResult(next));
     putMock
-      .mockResolvedValueOnce({ url: 'https://assets.public.blob.vercel-storage.com/rafay/config/site-data.json', pathname: 'rafay/config/site-data.json', etag: 'etag-next' })
-      .mockResolvedValueOnce({ url: 'https://assets.public.blob.vercel-storage.com/rafay/media/site/hero.webp', pathname: 'rafay/media/site/hero.webp' });
+      .mockResolvedValueOnce({
+        url: 'https://assets.public.blob.vercel-storage.com/rafay/config/versions/next.json',
+        pathname: 'rafay/config/versions/next.json',
+        etag: 'etag-next'
+      })
+      .mockResolvedValueOnce({
+        url: 'https://assets.public.blob.vercel-storage.com/rafay/media/site/hero.webp',
+        pathname: 'rafay/media/site/hero.webp'
+      });
 
     await saveSiteData(DEFAULT_SITE_DATA, 'etag-current');
     await saveMedia('site', 'hero.webp', new Blob(['image'], { type: 'image/webp' }), 'image/webp');
 
     expect(putMock).toHaveBeenNthCalledWith(
       1,
-      'rafay/config/site-data.json',
+      expect.stringMatching(/^rafay\/config\/versions\/.+\.json$/),
       expect.any(String),
-      expect.objectContaining({ token: 'public_rw_ci', access: 'public', ifMatch: 'etag-current' })
+      expect.objectContaining({ token: 'public_rw_ci', access: 'public', addRandomSuffix: false })
     );
+    expect(putMock.mock.calls[0]?.[2]).not.toHaveProperty('ifMatch');
+    expect(putMock.mock.calls[0]?.[2]).not.toHaveProperty('allowOverwrite');
     expect(putMock).toHaveBeenNthCalledWith(
       2,
       'rafay/media/site/hero.webp',
